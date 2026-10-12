@@ -1,0 +1,116 @@
+// Package wsbrokerclient provides a high-performance, mTLS-enabled Go client library
+// for WSBroker, featuring automatic reconnection, dynamic channel subscriptions,
+// point-to-point and broadcast messaging, and RESTful management APIs.
+package wsbrokerclient
+
+import (
+	"github.com/je4/wsbrokerclient/pkg/client"
+	"github.com/je4/wsbrokerclient/pkg/event"
+	"github.com/je4/wsbrokerclient/pkg/restclient"
+)
+
+// Type aliases for convenient top-level access.
+type (
+	// Client is the WebSocket client for WSBroker.
+	Client = client.Client
+
+	// Config defines client configuration options.
+	Config = client.Config
+
+	// Option modifies client configuration.
+	Option = client.Option
+
+	// ConnectionState represents the state of the connection.
+	ConnectionState = client.ConnectionState
+
+	// EventHandler is a callback invoked when an event is received.
+	EventHandler = client.EventHandler
+
+	// UnsubscribeFunc stops a subscription or listener.
+	UnsubscribeFunc = client.UnsubscribeFunc
+
+	// Subscription represents an active channel subscription stream.
+	Subscription = client.Subscription
+
+	// Event is the standardized message envelope.
+	Event = event.Event
+
+	// EventType is the category of message.
+	EventType = event.EventType
+
+	// RESTClient is the HTTP client for WSBroker REST APIs.
+	RESTClient = restclient.RESTClient
+
+	// RESTConfig defines configuration for RESTClient.
+	RESTConfig = restclient.Config
+
+	// RESTOption modifies RESTClient configuration.
+	RESTOption = restclient.Option
+
+	// ChannelInfo holds channel subscriber and client details.
+	ChannelInfo = restclient.ChannelInfo
+
+	// PublishResponse is returned after a REST publish.
+	PublishResponse = restclient.PublishResponse
+)
+
+// Standard EventType constants.
+const (
+	TypeAttach        = event.TypeAttach
+	TypeDetach        = event.TypeDetach
+	TypeMessage       = event.TypeMessage
+	TypeStringMessage = event.TypeStringMessage
+	TypePing          = event.TypePing
+	TypePong          = event.TypePong
+)
+
+// Standard ConnectionState constants.
+const (
+	StateDisconnected = client.StateDisconnected
+	StateConnecting   = client.StateConnecting
+	StateConnected    = client.StateConnected
+	StateReconnecting = client.StateReconnecting
+	StateClosed       = client.StateClosed
+)
+
+// New creates a new WSBroker WebSocket client.
+func New(cfg Config, opts ...Option) (*Client, error) {
+	return client.New(cfg, opts...)
+}
+
+// DefaultConfig returns default client configuration.
+func DefaultConfig() Config {
+	return client.DefaultConfig()
+}
+
+// NewRESTClient creates a new WSBroker REST client.
+func NewRESTClient(cfg RESTConfig, opts ...RESTOption) (*RESTClient, error) {
+	return restclient.New(cfg, opts...)
+}
+
+// Functional options re-exported from client package.
+var (
+	WithEndpoint          = client.WithEndpoint
+	WithClientName        = client.WithClientName
+	WithInitialChannels   = client.WithInitialChannels
+	WithBearerToken       = client.WithBearerToken
+	WithTLSConfig         = client.WithTLSConfig
+	WithTLSCertLoader     = client.WithTLSCertLoader
+	WithAutoReconnect     = client.WithAutoReconnect
+	WithReconnectStrategy = client.WithReconnectStrategy
+	WithPingInterval      = client.WithPingInterval
+	WithConnectTimeout    = client.WithConnectTimeout
+	WithWriteTimeout      = client.WithWriteTimeout
+	WithLogger            = client.WithLogger
+)
+
+// Event constructors re-exported from event package.
+var (
+	NewEvent                = event.NewEvent
+	NewMessageEvent         = event.NewMessageEvent
+	NewAttachEvent          = event.NewAttachEvent
+	NewDetachEvent          = event.NewDetachEvent
+	NewPingEvent            = event.NewPingEvent
+	NewPongEvent            = event.NewPongEvent
+	NewGenericStringMessage = event.NewGenericStringMessage
+)
