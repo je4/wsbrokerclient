@@ -98,6 +98,11 @@ func DefaultConfig() Config {
 	return client.DefaultConfig()
 }
 
+// DefaultRESTConfig returns default REST client configuration.
+func DefaultRESTConfig() RESTConfig {
+	return restclient.DefaultConfig()
+}
+
 // NewRESTClient creates a new WSBroker REST client.
 func NewRESTClient(cfg RESTConfig, opts ...RESTOption) (*RESTClient, error) {
 	return restclient.New(cfg, opts...)
