@@ -58,7 +58,7 @@ graph TB
     end
 
     subgraph Server["WSBroker Server"]
-        WSEndpoint["WebSocket Controller\n(/ws/:name, /ws/channel/:channel)"]
+        WSEndpoint["WebSocket Controller\n(/ws/:name/:mode, /ws/channel/:channel/:mode)"]
         RESTEndpoint["REST Controller\n(/api/v1/publish, /api/v1/channels)"]
         BrokerEngine["Connection Manager & Worker Pool"]
     end
@@ -84,7 +84,7 @@ sequenceDiagram
 
     Note over App,Server: 1. Connection & Initial Subscriptions
     App->>Client: Connect(ctx)
-    Client->>Server: WebSocket Handshake (GET /ws/node-01?channel=alerts)
+    Client->>Server: WebSocket Handshake (GET /ws/node-01/rw?channel=alerts)
     Server-->>Client: 101 Switching Protocols (Connected)
     Client-->>App: OnConnect Callback Triggered
 
@@ -433,6 +433,7 @@ func main() {
 | `Endpoint` | `string` | `""` | Target server URL (e.g. `wss://localhost:8080`). |
 | `ClientName` | `string` | Auto-generated | Unique client identifier. |
 | `InitialChannels` | `[]string` | `nil` | Channels to subscribe to upon connection. |
+| `Mode` | `ConnectionMode` | `ModeRW` ("rw") | Access permission mode: `ModeRW` ("rw"), `ModeRO` ("ro"), or `ModeWO` ("wo"). |
 | `Bearer` | `string` | `""` | Bearer authentication token. |
 | `TLSConfig` | `*tls.Config` | `nil` | Custom standard TLS configuration. |
 | `TLSCertLoader` | `*loader.Config`| `nil` | Dynamic mTLS certificate loader config. |

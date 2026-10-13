@@ -7,6 +7,7 @@
 - **Dynamic mTLS Authentication:** Full support for `go.ub.unibas.ch/cloud/certloader/v2` dynamic certificate loaders and standard `*crypto/tls.Config`.
 - **Automatic Reconnection with Jittered Exponential Backoff:** Automatically re-establishes dropped connections and re-attaches to all subscribed channels.
 - **Dynamic Pub/Sub & Streaming:** Go-channel stream subscriptions (`Subscribe`) and handler-based callbacks (`OnChannel`, `OnMessage`, `OnDirect`, `OnType`, `OnEvent`).
+- **Connection Modes (RW, RO, WO):** Configurable channel access permissions (`ModeRW`, `ModeRO`, `ModeWO`) mapped cleanly onto server routing.
 - **Concurrent Safety:** Thread-safe write and state synchronization.
 - **Heartbeat & Keepalive:** Automatic Ping/Pong handling and periodic ping dispatch.
 

@@ -4,12 +4,50 @@ package client
 
 import (
 	"crypto/tls"
+	"strings"
 	"time"
 
+	"emperror.dev/errors"
 	"github.com/je4/utils/v2/pkg/zLogger"
 	"github.com/je4/wsbrokerclient/pkg/event"
 	"go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
 )
+
+// ConnectionMode specifies the access permission mode of a WebSocket connection.
+type ConnectionMode string
+
+const (
+	// ModeRW allows both reading (subscribing to events) and writing (publishing events).
+	ModeRW ConnectionMode = "rw"
+	// ModeRO allows only reading (subscribing to events), rejecting publish attempts.
+	ModeRO ConnectionMode = "ro"
+	// ModeWO allows only writing (publishing events), bypassing all outgoing broadcast deliveries.
+	ModeWO ConnectionMode = "wo"
+)
+
+// ParseConnectionMode parses and validates a string into a ConnectionMode.
+func ParseConnectionMode(s string) (ConnectionMode, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "rw", "readwrite":
+		return ModeRW, nil
+	case "ro", "readonly":
+		return ModeRO, nil
+	case "wo", "w", "writeonly":
+		return ModeWO, nil
+	default:
+		return "", errors.Errorf("invalid or missing connection mode: %s", s)
+	}
+}
+
+// CanRead returns true if the connection mode allows receiving messages/broadcasts.
+func (m ConnectionMode) CanRead() bool {
+	return m != ModeWO
+}
+
+// CanWrite returns true if the connection mode allows publishing messages.
+func (m ConnectionMode) CanWrite() bool {
+	return m != ModeRO
+}
 
 // ConnectionState represents the current lifecycle state of the WebSocket client.
 type ConnectionState string
@@ -55,6 +93,9 @@ type Config struct {
 	// InitialChannels is the list of channel names to subscribe to upon initial connection.
 	InitialChannels []string `json:"initial_channels" toml:"initial_channels"`
 
+	// Mode is the connection mode (rw, ro, wo). Defaults to ModeRW ("rw").
+	Mode ConnectionMode `json:"mode" toml:"mode"`
+
 	// Bearer is the optional Bearer token used for HTTP/WS authentication.
 	Bearer string `json:"bearer" toml:"bearer"`
 
@@ -95,6 +136,7 @@ type Config struct {
 // DefaultConfig returns a Config initialized with sensible default values.
 func DefaultConfig() Config {
 	return Config{
+		Mode:                   ModeRW,
 		AutoReconnect:          true,
 		ReconnectInterval:      1 * time.Second,
 		MaxReconnectInterval:   30 * time.Second,

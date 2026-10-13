@@ -102,6 +102,16 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 		name = fmt.Sprintf("client-%s", hex.EncodeToString(b))
 	}
 
+	if cfg.Mode != "" {
+		m, err := ParseConnectionMode(string(cfg.Mode))
+		if err != nil {
+			return nil, err
+		}
+		cfg.Mode = m
+	} else {
+		cfg.Mode = ModeRW
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	c := &Client{
@@ -206,13 +216,58 @@ func (c *Client) buildURL() (string, http.Header, error) {
 		return "", nil, errors.Wrapf(err, "invalid endpoint URL '%s'", rawURL)
 	}
 
-	// If path is root or empty, construct standard /ws/:clientName
-	if u.Path == "" || u.Path == "/" {
-		u.Path = "/ws/" + url.PathEscape(c.clientName)
+	mode := c.config.Mode
+	if mode == "" {
+		mode = ModeRW
+	}
+
+	trimmedPath := strings.Trim(u.Path, "/")
+	if trimmedPath == "" {
+		u.Path = "/ws/" + url.PathEscape(c.clientName) + "/" + string(mode)
+	} else {
+		parts := strings.Split(trimmedPath, "/")
+		wsIdx := -1
+		for i, part := range parts {
+			if part == "ws" {
+				wsIdx = i
+				break
+			}
+		}
+
+		if wsIdx == -1 {
+			u.Path = "/" + trimmedPath + "/ws/" + url.PathEscape(c.clientName) + "/" + string(mode)
+		} else {
+			prefix := parts[:wsIdx]
+			wsParts := parts[wsIdx:]
+
+			switch len(wsParts) {
+			case 1:
+				// /ws -> /ws/:clientName/:mode
+				wsParts = append(wsParts, url.PathEscape(c.clientName), string(mode))
+			case 2:
+				// /ws/:name -> /ws/:name/:mode
+				wsParts = append(wsParts, string(mode))
+			case 3:
+				if wsParts[1] == "channel" {
+					// /ws/channel/:channel -> /ws/channel/:channel/:mode
+					wsParts = append(wsParts, string(mode))
+				}
+			case 4:
+				// /ws/channel/:channel/:mode -> already has mode
+			}
+
+			fullParts := append(prefix, wsParts...)
+			u.Path = "/" + strings.Join(fullParts, "/")
+		}
 	}
 
 	// Append initial channels and token to query if not already present
 	q := u.Query()
+	if strings.Contains(u.Path, "/ws/channel/") {
+		if q.Get("name") == "" && q.Get("client") == "" && c.clientName != "" {
+			q.Set("name", c.clientName)
+		}
+	}
 	c.channelsMu.RLock()
 	for ch := range c.channels {
 		found := false
@@ -670,6 +725,11 @@ func (c *Client) setState(st ConnectionState) {
 // ClientName returns the registered client identifier.
 func (c *Client) ClientName() string {
 	return c.clientName
+}
+
+// Mode returns the configured connection mode (rw, ro, wo).
+func (c *Client) Mode() ConnectionMode {
+	return c.config.Mode
 }
 
 // Channels returns the slice of currently tracked channel subscriptions.

@@ -32,6 +32,13 @@ func WithInitialChannels(channels ...string) Option {
 	}
 }
 
+// WithMode sets the connection mode (rw, ro, wo).
+func WithMode(mode ConnectionMode) Option {
+	return func(c *Config) {
+		c.Mode = mode
+	}
+}
+
 // WithBearerToken sets the Bearer authentication token.
 func WithBearerToken(token string) Option {
 	return func(c *Config) {

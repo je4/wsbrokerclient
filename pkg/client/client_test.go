@@ -479,3 +479,150 @@ func TestTLSConnection(t *testing.T) {
 		t.Fatalf("failed to ping over TLS: %v", err)
 	}
 }
+
+func TestConnectionModeParsingAndMethods(t *testing.T) {
+	// Parse valid modes
+	for _, raw := range []string{"rw", "RW", "readwrite", "ReadWrite"} {
+		m, err := client.ParseConnectionMode(raw)
+		if err != nil {
+			t.Fatalf("unexpected error parsing %s: %v", raw, err)
+		}
+		if m != client.ModeRW {
+			t.Errorf("expected ModeRW, got %v", m)
+		}
+		if !m.CanRead() || !m.CanWrite() {
+			t.Errorf("ModeRW should allow read and write")
+		}
+	}
+
+	for _, raw := range []string{"ro", "RO", "readonly", "ReadOnly"} {
+		m, err := client.ParseConnectionMode(raw)
+		if err != nil {
+			t.Fatalf("unexpected error parsing %s: %v", raw, err)
+		}
+		if m != client.ModeRO {
+			t.Errorf("expected ModeRO, got %v", m)
+		}
+		if !m.CanRead() || m.CanWrite() {
+			t.Errorf("ModeRO should allow read but not write")
+		}
+	}
+
+	for _, raw := range []string{"wo", "WO", "writeonly", "WriteOnly", "w", "W"} {
+		m, err := client.ParseConnectionMode(raw)
+		if err != nil {
+			t.Fatalf("unexpected error parsing %s: %v", raw, err)
+		}
+		if m != client.ModeWO {
+			t.Errorf("expected ModeWO, got %v", m)
+		}
+		if m.CanRead() || !m.CanWrite() {
+			t.Errorf("ModeWO should allow write but not read")
+		}
+	}
+
+	// Invalid mode
+	if _, err := client.ParseConnectionMode("invalid"); err == nil {
+		t.Error("expected error for invalid mode, got nil")
+	}
+}
+
+func TestBuildURLWithModesAndChannels(t *testing.T) {
+	var requestedPath string
+	var requestedQuery string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		requestedQuery = r.URL.RawQuery
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		_ = conn.Close(websocket.StatusNormalClosure, "bye")
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 1. Default ModeRW path /ws/:name/rw
+	cli1, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("client-1"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli1.Close()
+	_ = cli1.ConnectSync(ctx)
+	if requestedPath != "/ws/client-1/rw" {
+		t.Errorf("expected path /ws/client-1/rw, got %s", requestedPath)
+	}
+
+	// 2. Explicit ModeRO
+	cli2, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("client-ro"),
+		client.WithMode(client.ModeRO),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli2.Close()
+	if cli2.Mode() != client.ModeRO {
+		t.Errorf("expected ModeRO, got %v", cli2.Mode())
+	}
+	_ = cli2.ConnectSync(ctx)
+	if requestedPath != "/ws/client-ro/ro" {
+		t.Errorf("expected path /ws/client-ro/ro, got %s", requestedPath)
+	}
+
+	// 3. Explicit ModeWO
+	cli3, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("client-wo"),
+		client.WithMode(client.ModeWO),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli3.Close()
+	if cli3.Mode() != client.ModeWO {
+		t.Errorf("expected ModeWO, got %v", cli3.Mode())
+	}
+	_ = cli3.ConnectSync(ctx)
+	if requestedPath != "/ws/client-wo/wo" {
+		t.Errorf("expected path /ws/client-wo/wo, got %s", requestedPath)
+	}
+
+	// 4. Channel route without mode in endpoint URL: /ws/channel/alerts -> /ws/channel/alerts/rw
+	cli4, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL+"/ws/channel/alerts"),
+		client.WithClientName("subscriber-1"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli4.Close()
+	_ = cli4.ConnectSync(ctx)
+	if requestedPath != "/ws/channel/alerts/rw" {
+		t.Errorf("expected path /ws/channel/alerts/rw, got %s", requestedPath)
+	}
+	if !strings.Contains(requestedQuery, "name=subscriber-1") {
+		t.Errorf("expected query to contain name=subscriber-1, got %s", requestedQuery)
+	}
+
+	// 5. Channel route with explicit mode in endpoint URL: /ws/channel/alerts/ro
+	cli5, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL+"/ws/channel/alerts/ro"),
+		client.WithClientName("subscriber-ro"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli5.Close()
+	_ = cli5.ConnectSync(ctx)
+	if requestedPath != "/ws/channel/alerts/ro" {
+		t.Errorf("expected path /ws/channel/alerts/ro, got %s", requestedPath)
+	}
+}

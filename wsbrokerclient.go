@@ -23,6 +23,9 @@ type (
 	// ConnectionState represents the state of the connection.
 	ConnectionState = client.ConnectionState
 
+	// ConnectionMode specifies the access permission mode of a WebSocket connection.
+	ConnectionMode = client.ConnectionMode
+
 	// EventHandler is a callback invoked when an event is received.
 	EventHandler = client.EventHandler
 
@@ -73,6 +76,18 @@ const (
 	StateClosed       = client.StateClosed
 )
 
+// Standard ConnectionMode constants.
+const (
+	ModeRW = client.ModeRW
+	ModeRO = client.ModeRO
+	ModeWO = client.ModeWO
+)
+
+// ParseConnectionMode parses and validates a string into a ConnectionMode.
+func ParseConnectionMode(s string) (ConnectionMode, error) {
+	return client.ParseConnectionMode(s)
+}
+
 // New creates a new WSBroker WebSocket client.
 func New(cfg Config, opts ...Option) (*Client, error) {
 	return client.New(cfg, opts...)
@@ -93,6 +108,7 @@ var (
 	WithEndpoint          = client.WithEndpoint
 	WithClientName        = client.WithClientName
 	WithInitialChannels   = client.WithInitialChannels
+	WithMode              = client.WithMode
 	WithBearerToken       = client.WithBearerToken
 	WithTLSConfig         = client.WithTLSConfig
 	WithTLSCertLoader     = client.WithTLSCertLoader

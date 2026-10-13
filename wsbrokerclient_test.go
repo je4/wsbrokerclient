@@ -105,3 +105,26 @@ func TestTopLevelClientIntegration(t *testing.T) {
 		t.Fatal("timed out waiting for sensors event")
 	}
 }
+
+func TestTopLevelModeConfiguration(t *testing.T) {
+	m, err := wsbrokerclient.ParseConnectionMode("readonly")
+	if err != nil {
+		t.Fatalf("failed to parse mode: %v", err)
+	}
+	if m != wsbrokerclient.ModeRO {
+		t.Errorf("expected ModeRO, got %v", m)
+	}
+
+	cli, err := wsbrokerclient.New(wsbrokerclient.DefaultConfig(),
+		wsbrokerclient.WithEndpoint("ws://localhost:8080"),
+		wsbrokerclient.WithMode(wsbrokerclient.ModeWO),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli.Close()
+
+	if cli.Mode() != wsbrokerclient.ModeWO {
+		t.Errorf("expected ModeWO, got %v", cli.Mode())
+	}
+}
