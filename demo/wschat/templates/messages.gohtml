@@ -1,0 +1,22 @@
+{{ range .Messages }}
+<div class="flex flex-col {{ if .IsSelf }}items-end{{ else }}items-start{{ end }} mb-3 transition-all">
+    <div class="flex items-center gap-2 mb-1 px-1">
+        <span class="text-xs font-semibold {{ if .IsSelf }}text-teal-600 dark:text-teal-400{{ else }}text-slate-600 dark:text-slate-300{{ end }}">
+            {{ if .IsSelf }}You ({{ .Sender }}){{ else }}{{ .Sender }}{{ end }}
+        </span>
+        <span class="text-[10px] text-slate-400 dark:text-slate-500">{{ .FormattedTime }}</span>
+    </div>
+    <div class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm break-words {{ if .IsSelf }}bg-teal-600 text-white rounded-br-xs{{ else }}bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700/60 rounded-bl-xs{{ end }}">
+        {{ .Content }}
+    </div>
+</div>
+{{ else }}
+<div class="h-full min-h-[220px] flex flex-col items-center justify-center text-center p-6 text-slate-400 dark:text-slate-500">
+    <svg class="w-12 h-12 mb-3 stroke-slate-300 dark:stroke-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+    <p class="text-sm font-medium">No messages yet in #{{ .ActiveChannel }}</p>
+    <p class="text-xs mt-1">Be the first to say something!</p>
+</div>
+{{ end }}
+<div id="messages-anchor"></div>

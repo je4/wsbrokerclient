@@ -7,6 +7,14 @@ import (
 	"go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
 )
 
+// WSChatConfig defines configuration parameters for the wschat demo application.
+//
+// Fields:
+//   - Name: Unique client identifier (e.g. "test01") used for wsbrokerclient identity and authorization.
+//   - WSBroker: Target broker endpoint URL (e.g. "https://localhost:8765" or "wss://...").
+//   - Channels: Initial list of channels to subscribe to on startup (e.g. ["all", "intern"]).
+//   - ClientTLS: mTLS configuration via certloader (MiniVault, File, Env, Dev, or ACME).
+//   - WebTLS: TLS configuration for the local HTTPS web interface server.
 type WSChatConfig struct {
 	Name      string        `toml:"name"`
 	WSBroker  string        `toml:"wsbroker"`
@@ -15,7 +23,8 @@ type WSChatConfig struct {
 	WebTLS    loader.Config `toml:"webtls"`
 }
 
-// LoadConfig loads the WSChatConfig from path, or from the embedded default wschat.toml if path is empty.
+// LoadConfig loads the WSChatConfig from the specified TOML file path, or falls back
+// to the embedded default configuration (demo/config/wschat.toml) if path is empty.
 func LoadConfig(path string) (*WSChatConfig, error) {
 	conf := &WSChatConfig{}
 	if path == "" {

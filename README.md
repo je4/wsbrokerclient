@@ -28,6 +28,7 @@
   - [Publishing & Broadcasting](#publishing--broadcasting)
   - [Heartbeat & Ping/Pong Handling](#heartbeat--pingpong-handling)
 - [REST Management API Client](#rest-management-api-client)
+- [Demo Application (`wschat`)](#demo-application-wschat)
 - [Configuration Reference](#configuration-reference)
 - [License](#license)
 
@@ -421,6 +422,14 @@ func main() {
 	_ = restCli.DisconnectClient(ctx, "bad-client-node")
 }
 ```
+
+---
+
+## Demo Application (`wschat`)
+
+A complete reference implementation featuring an interactive HTMX web chat interface, mTLS with `certloader`, dynamic channels, and lifecycle management is available in the [`demo/wschat`](demo/wschat) directory.
+
+See [demo/wschat/README.md](demo/wschat/README.md) for detailed documentation and instructions on running the demo.
 
 ---
 

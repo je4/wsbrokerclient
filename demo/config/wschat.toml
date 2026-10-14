@@ -1,0 +1,23 @@
+name = "test01"
+wsbroker = "https://localhost:8765"
+channels = ["all", "intern"]
+
+[clienttls]
+type = "minivault"
+
+[clienttls.minivault]
+baseurl = "https://localhost:8759/api/v1"
+parenttoken = "pa.22f09dfd1cbfbe9f.c17b29cb2b730533"
+tokentype = "client_cert"
+tokenpolicies = ["wsbroker.client"]
+#tokeninterval = "24h"
+#tokenttl = "35h"
+certtype = "client_cert"
+uris = ["wsbroker:client:test01", "wsbroker:channel:all", "wsbroker:channel:intern"]
+#certinterval = "24h"
+#certttl = "48h"
+ca = ["certs/minivault.ca.pem"]
+usesystempool = false
+
+[webtls]
+type="dev"

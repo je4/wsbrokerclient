@@ -1,0 +1,25 @@
+<div class="flex items-center gap-2">
+    {{ if eq .Status "Connected" }}
+    <span class="relative flex h-2.5 w-2.5">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+    </span>
+    <span class="text-xs font-medium text-emerald-700 dark:text-emerald-400">Connected</span>
+    {{ else if eq .Status "Connecting" }}
+    <span class="relative flex h-2.5 w-2.5">
+        <span class="animate-pulse inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+    </span>
+    <span class="text-xs font-medium text-amber-700 dark:text-amber-400">Connecting...</span>
+    {{ else if eq .Status "Reconnecting" }}
+    <span class="relative flex h-2.5 w-2.5">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+    </span>
+    <span class="text-xs font-medium text-amber-700 dark:text-amber-400">Reconnecting...</span>
+    {{ else }}
+    <span class="relative flex h-2.5 w-2.5">
+        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+    </span>
+    <span class="text-xs font-medium text-rose-700 dark:text-rose-400">Disconnected</span>
+    {{ end }}
+</div>
