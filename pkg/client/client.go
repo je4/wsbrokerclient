@@ -23,6 +23,11 @@ import (
 	"go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
 )
 
+type listenerEntry struct {
+	id uint64
+	h  EventHandler
+}
+
 // Client is the primary interface for communicating with a WSBroker server.
 type Client struct {
 	config Config
@@ -42,10 +47,11 @@ type Client struct {
 	channelsMu sync.RWMutex
 
 	// Event listeners
-	globalListeners []EventHandler
-	typeListeners   map[event.EventType][]EventHandler
-	chanListeners   map[string][]EventHandler
-	directListeners []EventHandler
+	globalListeners []listenerEntry
+	typeListeners   map[event.EventType][]listenerEntry
+	chanListeners   map[string][]listenerEntry
+	directListeners []listenerEntry
+	nextListenerID  atomic.Uint64
 	listenersMu     sync.RWMutex
 
 	// Channel subscriptions (stream-based)
@@ -120,8 +126,8 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 		state:         StateDisconnected,
 		clientName:    name,
 		channels:      make(map[string]struct{}),
-		typeListeners: make(map[event.EventType][]EventHandler),
-		chanListeners: make(map[string][]EventHandler),
+		typeListeners: make(map[event.EventType][]listenerEntry),
+		chanListeners: make(map[string][]listenerEntry),
 		subscriptions: make(map[string][]*subscription),
 		ctx:           ctx,
 		cancel:        cancel,
@@ -451,12 +457,23 @@ func (c *Client) handleIncomingEvent(evt *event.Event) {
 
 	// Dispatch to subscribers & listeners
 	c.listenersMu.RLock()
-	global := append([]EventHandler(nil), c.globalListeners...)
-	byType := append([]EventHandler(nil), c.typeListeners[evt.Type]...)
-	byChan := append([]EventHandler(nil), c.chanListeners[evt.Target]...)
+	var global []EventHandler
+	for _, entry := range c.globalListeners {
+		global = append(global, entry.h)
+	}
+	var byType []EventHandler
+	for _, entry := range c.typeListeners[evt.Type] {
+		byType = append(byType, entry.h)
+	}
+	var byChan []EventHandler
+	for _, entry := range c.chanListeners[evt.Target] {
+		byChan = append(byChan, entry.h)
+	}
 	var direct []EventHandler
 	if evt.Target == c.clientName {
-		direct = append([]EventHandler(nil), c.directListeners...)
+		for _, entry := range c.directListeners {
+			direct = append(direct, entry.h)
+		}
 	}
 	c.listenersMu.RUnlock()
 
@@ -716,6 +733,64 @@ func (c *Client) Ping(ctx context.Context) error {
 	return c.Send(ctx, evt)
 }
 
+// QueryNTP sends a raw NTP packet (typically 48 bytes) to the server and waits for the response packet.
+func (c *Client) QueryNTP(ctx context.Context, data []byte) ([]byte, error) {
+	if !c.IsConnected() {
+		return nil, errors.New("client is not connected")
+	}
+
+	evt, err := event.NewNTPQueryEvent(c.clientName, data)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create NTP query event")
+	}
+
+	respCh := make(chan *event.Event, 1)
+
+	unsubResp := c.OnType(event.TypeNTPResponse, func(e *event.Event) {
+		select {
+		case respCh <- e:
+		default:
+		}
+	})
+	defer unsubResp()
+
+	unsubErr := c.OnType(event.TypeNTPError, func(e *event.Event) {
+		select {
+		case respCh <- e:
+		default:
+		}
+	})
+	defer unsubErr()
+
+	if err := c.Send(ctx, evt); err != nil {
+		return nil, errors.Wrap(err, "failed to send NTP query event")
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.ctx.Done():
+		return nil, errors.New("client closed")
+	case resp := <-respCh:
+		if resp.Type == event.TypeNTPError {
+			var errMsg string
+			if err := resp.UnmarshalData(&errMsg); err == nil {
+				return nil, errors.Errorf("NTP error from server: %s", errMsg)
+			}
+			return nil, errors.New("NTP error from server")
+		}
+		raw, err := resp.GetData()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get NTP response data")
+		}
+		respBytes, ok := raw.([]byte)
+		if !ok {
+			return nil, errors.Errorf("unexpected NTP response data type %T", raw)
+		}
+		return respBytes, nil
+	}
+}
+
 // IsConnected returns true if the client is actively connected to the server.
 func (c *Client) IsConnected() bool {
 	return c.GetState() == StateConnected
@@ -795,15 +870,16 @@ func (c *Client) removeSubscription(sub *subscription) {
 
 // OnEvent registers a global event listener called for every received event.
 func (c *Client) OnEvent(handler EventHandler) UnsubscribeFunc {
+	id := c.nextListenerID.Add(1)
 	c.listenersMu.Lock()
 	defer c.listenersMu.Unlock()
-	c.globalListeners = append(c.globalListeners, handler)
+	c.globalListeners = append(c.globalListeners, listenerEntry{id: id, h: handler})
 
 	return func() {
 		c.listenersMu.Lock()
 		defer c.listenersMu.Unlock()
-		for i, h := range c.globalListeners {
-			if &h == &handler {
+		for i, entry := range c.globalListeners {
+			if entry.id == id {
 				c.globalListeners = append(c.globalListeners[:i], c.globalListeners[i+1:]...)
 				break
 			}
@@ -818,16 +894,17 @@ func (c *Client) OnMessage(handler EventHandler) UnsubscribeFunc {
 
 // OnChannel registers a listener for events targeted to a specific channel.
 func (c *Client) OnChannel(channel string, handler EventHandler) UnsubscribeFunc {
+	id := c.nextListenerID.Add(1)
 	c.listenersMu.Lock()
 	defer c.listenersMu.Unlock()
-	c.chanListeners[channel] = append(c.chanListeners[channel], handler)
+	c.chanListeners[channel] = append(c.chanListeners[channel], listenerEntry{id: id, h: handler})
 
 	return func() {
 		c.listenersMu.Lock()
 		defer c.listenersMu.Unlock()
 		list := c.chanListeners[channel]
-		for i, h := range list {
-			if &h == &handler {
+		for i, entry := range list {
+			if entry.id == id {
 				c.chanListeners[channel] = append(list[:i], list[i+1:]...)
 				break
 			}
@@ -840,15 +917,16 @@ func (c *Client) OnChannel(channel string, handler EventHandler) UnsubscribeFunc
 
 // OnDirect registers a listener for direct point-to-point messages sent to this client.
 func (c *Client) OnDirect(handler EventHandler) UnsubscribeFunc {
+	id := c.nextListenerID.Add(1)
 	c.listenersMu.Lock()
 	defer c.listenersMu.Unlock()
-	c.directListeners = append(c.directListeners, handler)
+	c.directListeners = append(c.directListeners, listenerEntry{id: id, h: handler})
 
 	return func() {
 		c.listenersMu.Lock()
 		defer c.listenersMu.Unlock()
-		for i, h := range c.directListeners {
-			if &h == &handler {
+		for i, entry := range c.directListeners {
+			if entry.id == id {
 				c.directListeners = append(c.directListeners[:i], c.directListeners[i+1:]...)
 				break
 			}
@@ -858,16 +936,17 @@ func (c *Client) OnDirect(handler EventHandler) UnsubscribeFunc {
 
 // OnType registers a listener for events of a specific EventType.
 func (c *Client) OnType(t event.EventType, handler EventHandler) UnsubscribeFunc {
+	id := c.nextListenerID.Add(1)
 	c.listenersMu.Lock()
 	defer c.listenersMu.Unlock()
-	c.typeListeners[t] = append(c.typeListeners[t], handler)
+	c.typeListeners[t] = append(c.typeListeners[t], listenerEntry{id: id, h: handler})
 
 	return func() {
 		c.listenersMu.Lock()
 		defer c.listenersMu.Unlock()
 		list := c.typeListeners[t]
-		for i, h := range list {
-			if &h == &handler {
+		for i, entry := range list {
+			if entry.id == id {
 				c.typeListeners[t] = append(list[:i], list[i+1:]...)
 				break
 			}

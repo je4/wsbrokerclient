@@ -111,4 +111,54 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	if roundtrip.Type != evt.Type || roundtrip.Source != evt.Source || roundtrip.Target != evt.Target {
 		t.Errorf("roundtrip mismatch: %+v vs %+v", roundtrip, evt)
 	}
+
+	// 8. NTP Query, Response & Error Events
+	rawNTP := make([]byte, 48)
+	rawNTP[0] = 0x1b // NTP request header
+	ntpQuery, err := event.NewNTPQueryEvent("client-1", rawNTP)
+	if err != nil {
+		t.Fatalf("failed to create NTP query event: %v", err)
+	}
+	if ntpQuery.GetType() != event.TypeNTPQuery {
+		t.Errorf("expected type %s, got %s", event.TypeNTPQuery, ntpQuery.GetType())
+	}
+	gotNTPData, err := ntpQuery.GetData()
+	if err != nil {
+		t.Fatalf("failed to get NTP query data: %v", err)
+	}
+	rawBytes, ok := gotNTPData.([]byte)
+	if !ok || len(rawBytes) != 48 || rawBytes[0] != 0x1b {
+		t.Errorf("expected 48-byte NTP slice with first byte 0x1b, got %v (%T)", gotNTPData, gotNTPData)
+	}
+
+	ntpResp, err := event.NewNTPResponseEvent("wsbroker", "client-1", rawNTP)
+	if err != nil {
+		t.Fatalf("failed to create NTP response event: %v", err)
+	}
+	if ntpResp.GetType() != event.TypeNTPResponse {
+		t.Errorf("expected type %s, got %s", event.TypeNTPResponse, ntpResp.GetType())
+	}
+	gotRespData, err := ntpResp.GetData()
+	if err != nil {
+		t.Fatalf("failed to get NTP response data: %v", err)
+	}
+	respBytes, ok := gotRespData.([]byte)
+	if !ok || len(respBytes) != 48 {
+		t.Errorf("expected 48 bytes NTP response, got %v", gotRespData)
+	}
+
+	ntpErr, err := event.NewNTPErrorEvent("wsbroker", "client-1", "ntp server timeout")
+	if err != nil {
+		t.Fatalf("failed to create NTP error event: %v", err)
+	}
+	if ntpErr.GetType() != event.TypeNTPError {
+		t.Errorf("expected type %s, got %s", event.TypeNTPError, ntpErr.GetType())
+	}
+	gotErrData, err := ntpErr.GetData()
+	if err != nil {
+		t.Fatalf("failed to get NTP error data: %v", err)
+	}
+	if errStr, ok := gotErrData.(string); !ok || errStr != "ntp server timeout" {
+		t.Errorf("expected error string 'ntp server timeout', got %v", gotErrData)
+	}
 }

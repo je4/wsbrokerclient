@@ -25,6 +25,12 @@ const (
 	TypePing EventType = "ping"
 	// TypePong represents a pong heartbeat response event.
 	TypePong EventType = "pong"
+	// TypeNTPQuery is sent by a client to query NTP time via raw 48-byte UDP packet.
+	TypeNTPQuery EventType = "ntp-query"
+	// TypeNTPResponse is sent by the server with the raw NTP response packet.
+	TypeNTPResponse EventType = "ntp-response"
+	// TypeNTPError is sent by the server if NTP querying fails.
+	TypeNTPError EventType = "ntp-error"
 )
 
 // DataInterface provides a contract for typed data objects that can supply their event type and string representation.
@@ -82,10 +88,17 @@ func (e *Event) GetToken() string {
 	return e.Token
 }
 
-// GetData unmarshals the JSON payload into either a primitive string or generic JSON structure.
+// GetData unmarshals the JSON payload into either a primitive string, raw bytes (for NTP events), or generic JSON structure.
 func (e *Event) GetData() (interface{}, error) {
 	if e == nil || len(e.Data) == 0 {
 		return nil, nil
+	}
+	switch e.Type {
+	case TypeNTPQuery, TypeNTPResponse, TypeNTPError:
+		var raw []byte
+		if err := json.Unmarshal(e.Data, &raw); err == nil {
+			return raw, nil
+		}
 	}
 	var msg string
 	if err := json.Unmarshal(e.Data, &msg); err == nil {
@@ -214,6 +227,47 @@ func NewPongEvent(source, target string, data ...any) (*Event, error) {
 	}
 	return &Event{
 		Type:   TypePong,
+		Source: source,
+		Target: target,
+		Data:   raw,
+	}, nil
+}
+
+// NewNTPQueryEvent creates an Event of type TypeNTPQuery with raw NTP packet bytes.
+func NewNTPQueryEvent(source string, data []byte) (*Event, error) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal NTP query data")
+	}
+	return &Event{
+		Type:   TypeNTPQuery,
+		Source: source,
+		Data:   raw,
+	}, nil
+}
+
+// NewNTPResponseEvent creates an Event of type TypeNTPResponse with raw NTP response bytes.
+func NewNTPResponseEvent(source, target string, data []byte) (*Event, error) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal NTP response data")
+	}
+	return &Event{
+		Type:   TypeNTPResponse,
+		Source: source,
+		Target: target,
+		Data:   raw,
+	}, nil
+}
+
+// NewNTPErrorEvent creates an Event of type TypeNTPError with an error message string.
+func NewNTPErrorEvent(source, target, errMsg string) (*Event, error) {
+	raw, err := json.Marshal(errMsg)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal NTP error message: %s", errMsg)
+	}
+	return &Event{
+		Type:   TypeNTPError,
 		Source: source,
 		Target: target,
 		Data:   raw,
