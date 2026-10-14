@@ -208,7 +208,11 @@ func (c *Client) buildURL() (string, http.Header, error) {
 	} else if strings.HasPrefix(rawURL, "https://") {
 		rawURL = "wss://" + strings.TrimPrefix(rawURL, "https://")
 	} else if !strings.HasPrefix(rawURL, "ws://") && !strings.HasPrefix(rawURL, "wss://") {
-		rawURL = "ws://" + rawURL
+		if c.config.TLSConfig != nil || c.config.TLSCertLoader != nil {
+			rawURL = "wss://" + rawURL
+		} else {
+			rawURL = "ws://" + rawURL
+		}
 	}
 
 	u, err := url.Parse(rawURL)
@@ -316,11 +320,19 @@ func (c *Client) dial(ctx context.Context) error {
 	}
 
 	if c.config.TLSConfig != nil {
-		opts.HTTPClient = &http.Client{
-			Transport: &http.Transport{
+		var transport *http.Transport
+		if defTr, ok := http.DefaultTransport.(*http.Transport); ok {
+			transport = defTr.Clone()
+			transport.TLSClientConfig = c.config.TLSConfig
+		} else {
+			transport = &http.Transport{
 				TLSClientConfig: c.config.TLSConfig,
-			},
-			Timeout: connectTimeout,
+			}
+		}
+
+		opts.HTTPClient = &http.Client{
+			Transport: transport,
+			Timeout:   connectTimeout,
 		}
 	}
 

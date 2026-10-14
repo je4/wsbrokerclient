@@ -71,8 +71,14 @@ func New(cfg Config, opts ...Option) (*RESTClient, error) {
 		}
 	}
 
-	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
+	var transport *http.Transport
+	if defTr, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defTr.Clone()
+		transport.TLSClientConfig = tlsConfig
+	} else {
+		transport = &http.Transport{
+			TLSClientConfig: tlsConfig,
+		}
 	}
 
 	httpClient := &http.Client{

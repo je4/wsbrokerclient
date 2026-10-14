@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/je4/wsbrokerclient/pkg/client"
 	"github.com/je4/wsbrokerclient/pkg/event"
+	"go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
 )
 
 type mockBrokerServer struct {
@@ -477,6 +480,105 @@ func TestTLSConnection(t *testing.T) {
 	// Ping test
 	if err := cli.Ping(ctx); err != nil {
 		t.Fatalf("failed to ping over TLS: %v", err)
+	}
+}
+
+func TestMTLSConnection(t *testing.T) {
+	serverLoaderConfig := &loader.Config{
+		Type: "DEV",
+	}
+	serverTLSConfig, serverCloser, err := loader.CreateServerLoader(true, serverLoaderConfig, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create server TLS loader: %v", err)
+	}
+	defer serverCloser.Close()
+
+	mockServer := newMockBrokerServer("")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	tlsLn := tls.NewListener(ln, serverTLSConfig)
+	httpServer := &http.Server{Handler: mockServer}
+	go func() {
+		_ = httpServer.Serve(tlsLn)
+	}()
+	defer httpServer.Close()
+
+	serverURL := fmt.Sprintf("https://%s", ln.Addr().String())
+
+	// 1. Client configured with mTLS client certificate via TLSCertLoader
+	clientLoaderConfig := &loader.Config{
+		Type: "DEV",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cli, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(serverURL),
+		client.WithClientName("mtls-client"),
+		client.WithTLSCertLoader(clientLoaderConfig),
+	)
+	if err != nil {
+		t.Fatalf("failed to create mTLS client: %v", err)
+	}
+	defer cli.Close()
+
+	if err := cli.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect over mTLS with certloader: %v", err)
+	}
+
+	if !cli.IsConnected() {
+		t.Fatal("expected mTLS client to be connected")
+	}
+
+	if err := cli.Ping(ctx); err != nil {
+		t.Fatalf("failed to ping over mTLS: %v", err)
+	}
+
+	// 2. Client configured with mTLS client certificate directly via TLSConfig
+	clientTLSConfig, clientCloser, err := loader.CreateClientLoader(clientLoaderConfig, nil)
+	if err != nil {
+		t.Fatalf("failed to create client TLS config: %v", err)
+	}
+	defer clientCloser.Close()
+
+	cliDirect, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(serverURL),
+		client.WithClientName("mtls-direct-client"),
+		client.WithTLSConfig(clientTLSConfig),
+	)
+	if err != nil {
+		t.Fatalf("failed to create direct mTLS client: %v", err)
+	}
+	defer cliDirect.Close()
+
+	if err := cliDirect.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect over direct mTLS: %v", err)
+	}
+
+	if !cliDirect.IsConnected() {
+		t.Fatal("expected direct mTLS client to be connected")
+	}
+
+	// 3. Client WITHOUT client cert should fail against mTLS server
+	cliNoCert, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(serverURL),
+		client.WithClientName("no-cert-client"),
+		client.WithTLSConfig(&tls.Config{
+			InsecureSkipVerify: true,
+		}),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client without cert: %v", err)
+	}
+	defer cliNoCert.Close()
+
+	if err := cliNoCert.ConnectSync(ctx); err == nil {
+		t.Fatal("expected client without client cert to fail connecting to mTLS server requiring client cert")
 	}
 }
 

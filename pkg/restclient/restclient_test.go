@@ -2,7 +2,10 @@ package restclient_test
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/je4/wsbrokerclient/pkg/event"
 	"github.com/je4/wsbrokerclient/pkg/restclient"
+	"go.ub.unibas.ch/cloud/certloader/v2/pkg/loader"
 )
 
 func TestRESTClientEndpoints(t *testing.T) {
@@ -161,5 +165,78 @@ func TestRESTClientEndpoints(t *testing.T) {
 	// 7. Disconnect Client
 	if err := client.DisconnectClient(ctx, "c1"); err != nil {
 		t.Fatalf("DisconnectClient failed: %v", err)
+	}
+}
+
+func TestRESTClientMTLS(t *testing.T) {
+	serverLoaderConfig := &loader.Config{
+		Type: "DEV",
+	}
+	serverTLSConfig, serverCloser, err := loader.CreateServerLoader(true, serverLoaderConfig, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create server TLS loader: %v", err)
+	}
+	defer serverCloser.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("pong"))
+	})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer ln.Close()
+
+	tlsLn := tls.NewListener(ln, serverTLSConfig)
+	httpServer := &http.Server{Handler: mux}
+	go func() {
+		_ = httpServer.Serve(tlsLn)
+	}()
+	defer httpServer.Close()
+
+	serverURL := fmt.Sprintf("https://%s", ln.Addr().String())
+
+	// 1. RESTClient with TLSCertLoader
+	clientLoaderConfig := &loader.Config{
+		Type: "DEV",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli, err := restclient.New(restclient.Config{
+		BaseURL:       serverURL,
+		TLSCertLoader: clientLoaderConfig,
+	})
+	if err != nil {
+		t.Fatalf("failed to create mTLS rest client: %v", err)
+	}
+	defer cli.Close()
+
+	pong, err := cli.Ping(ctx)
+	if err != nil {
+		t.Fatalf("mTLS Ping failed: %v", err)
+	}
+	if pong != "pong" {
+		t.Errorf("expected 'pong', got '%s'", pong)
+	}
+
+	// 2. Client WITHOUT client cert should fail against mTLS server
+	cliNoCert, err := restclient.New(restclient.Config{
+		BaseURL: serverURL,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create rest client without cert: %v", err)
+	}
+	defer cliNoCert.Close()
+
+	if _, err := cliNoCert.Ping(ctx); err == nil {
+		t.Fatal("expected request without client certificate to fail on mTLS server")
 	}
 }
