@@ -3,7 +3,8 @@
 package event
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"emperror.dev/errors"
@@ -21,6 +22,8 @@ const (
 	TypeMessage EventType = "message"
 	// TypeStringMessage is an alias for TypeMessage for string payloads.
 	TypeStringMessage EventType = "message"
+	// TypeFile represents a binary file payload with attached metadata.
+	TypeFile EventType = "file"
 	// TypePing represents a ping heartbeat or health-check event.
 	TypePing EventType = "ping"
 	// TypePong represents a pong heartbeat response event.
@@ -41,11 +44,11 @@ type DataInterface interface {
 
 // Event represents a standardized message envelope transmitted across WebSockets and REST APIs.
 type Event struct {
-	Type   EventType       `json:"type"`
-	Source string          `json:"source"`
-	Target string          `json:"target"`
-	Token  string          `json:"token,omitempty"`
-	Data   json.RawMessage `json:"data"`
+	Type   EventType      `json:"type"`
+	Source string         `json:"source"`
+	Target string         `json:"target"`
+	Token  string         `json:"token,omitempty"`
+	Data   jsontext.Value `json:"data"`
 }
 
 // String returns a human-readable summary of the Event.
@@ -98,6 +101,11 @@ func (e *Event) GetData() (interface{}, error) {
 		var raw []byte
 		if err := json.Unmarshal(e.Data, &raw); err == nil {
 			return raw, nil
+		}
+	case TypeFile:
+		var fm FileMessage
+		if err := json.Unmarshal(e.Data, &fm); err == nil {
+			return &fm, nil
 		}
 	}
 	var msg string
@@ -166,6 +174,28 @@ func NewMessageEvent(source, target string, data any) (*Event, error) {
 	}, nil
 }
 
+// NewFileEvent creates an Event of type TypeFile carrying a FileMessage payload.
+func NewFileEvent(source, target string, file *FileMessage, token ...string) (*Event, error) {
+	if file == nil {
+		return nil, errors.New("file message cannot be nil")
+	}
+	var tok string
+	if len(token) > 0 {
+		tok = token[0]
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal file event data: %v", file.Filename)
+	}
+	return &Event{
+		Type:   TypeFile,
+		Source: source,
+		Target: target,
+		Token:  tok,
+		Data:   raw,
+	}, nil
+}
+
 // NewAttachEvent creates an Event of type TypeAttach to subscribe to a channel.
 func NewAttachEvent(source, channel string) (*Event, error) {
 	raw, err := json.Marshal(channel)
@@ -196,7 +226,7 @@ func NewDetachEvent(source, channel string) (*Event, error) {
 
 // NewPingEvent creates a ping heartbeat Event.
 func NewPingEvent(source string, data ...any) (*Event, error) {
-	var raw json.RawMessage
+	var raw jsontext.Value
 	if len(data) > 0 && data[0] != nil {
 		var err error
 		raw, err = marshalPayload(data[0])
@@ -204,7 +234,7 @@ func NewPingEvent(source string, data ...any) (*Event, error) {
 			return nil, err
 		}
 	} else {
-		raw = json.RawMessage(`"ping"`)
+		raw = jsontext.Value(`"ping"`)
 	}
 	return &Event{
 		Type:   TypePing,
@@ -215,7 +245,7 @@ func NewPingEvent(source string, data ...any) (*Event, error) {
 
 // NewPongEvent creates a pong heartbeat response Event.
 func NewPongEvent(source, target string, data ...any) (*Event, error) {
-	var raw json.RawMessage
+	var raw jsontext.Value
 	if len(data) > 0 && data[0] != nil {
 		var err error
 		raw, err = marshalPayload(data[0])
@@ -223,7 +253,7 @@ func NewPongEvent(source, target string, data ...any) (*Event, error) {
 			return nil, err
 		}
 	} else {
-		raw = json.RawMessage(`"pong"`)
+		raw = jsontext.Value(`"pong"`)
 	}
 	return &Event{
 		Type:   TypePong,
@@ -274,15 +304,15 @@ func NewNTPErrorEvent(source, target, errMsg string) (*Event, error) {
 	}, nil
 }
 
-func marshalPayload(data any) (json.RawMessage, error) {
+func marshalPayload(data any) (jsontext.Value, error) {
 	if data == nil {
 		return nil, nil
 	}
 	switch v := data.(type) {
-	case json.RawMessage:
+	case jsontext.Value:
 		return v, nil
 	case []byte:
-		return json.RawMessage(v), nil
+		return jsontext.Value(v), nil
 	case string:
 		b, err := json.Marshal(v)
 		if err != nil {
@@ -339,3 +369,41 @@ func (m *GenericStringMessage) Type() EventType {
 }
 
 var _ DataInterface = (*GenericStringMessage)(nil)
+
+// FileMessage represents a binary file payload with metadata.
+type FileMessage struct {
+	Filename string `json:"filename"`
+	MimeType string `json:"mime_type"`
+	Size     int64  `json:"size"`
+	Data     []byte `json:"data"`
+}
+
+// NewFileMessage creates a new FileMessage with the provided metadata and binary content.
+// If size <= 0, it is automatically derived from the length of the data slice.
+func NewFileMessage(filename, mimeType string, data []byte, size ...int64) *FileMessage {
+	dataSize := int64(len(data))
+	if len(size) > 0 && size[0] > 0 {
+		dataSize = size[0]
+	}
+	return &FileMessage{
+		Filename: filename,
+		MimeType: mimeType,
+		Size:     dataSize,
+		Data:     data,
+	}
+}
+
+// String returns a human-readable representation of the file metadata.
+func (f *FileMessage) String() string {
+	if f == nil {
+		return "<nil file>"
+	}
+	return fmt.Sprintf("File: %s (%s, %d bytes)", f.Filename, f.MimeType, f.Size)
+}
+
+// Type returns the EventType for file messages.
+func (f *FileMessage) Type() EventType {
+	return TypeFile
+}
+
+var _ DataInterface = (*FileMessage)(nil)

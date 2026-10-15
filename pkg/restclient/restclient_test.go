@@ -3,7 +3,7 @@ package restclient_test
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net"
 	"net/http"
@@ -35,7 +35,7 @@ func TestRESTClientEndpoints(t *testing.T) {
 			return
 		}
 		var req restclient.PublishRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.UnmarshalRead(r.Body, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -46,7 +46,7 @@ func TestRESTClientEndpoints(t *testing.T) {
 			Subscribers: 2,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = json.MarshalWrite(w, resp)
 	})
 
 	mux.HandleFunc("/api/v1/channel/alerts/publish", func(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +57,7 @@ func TestRESTClientEndpoints(t *testing.T) {
 			Subscribers: 5,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = json.MarshalWrite(w, resp)
 	})
 
 	mux.HandleFunc("/api/v1/channels", func(w http.ResponseWriter, r *http.Request) {
@@ -66,19 +66,19 @@ func TestRESTClientEndpoints(t *testing.T) {
 			{Name: "news", Subscribers: 1, Clients: []string{"c1"}},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(channels)
+		_ = json.MarshalWrite(w, channels)
 	})
 
 	mux.HandleFunc("/api/v1/clients", func(w http.ResponseWriter, r *http.Request) {
 		clients := []string{"c1", "c2", "c3"}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(clients)
+		_ = json.MarshalWrite(w, clients)
 	})
 
 	mux.HandleFunc("/api/v1/channel/alerts/clients", func(w http.ResponseWriter, r *http.Request) {
 		clients := []string{"c1", "c2", "c3"}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(clients)
+		_ = json.MarshalWrite(w, clients)
 	})
 
 	mux.HandleFunc("/api/v1/client/c1", func(w http.ResponseWriter, r *http.Request) {

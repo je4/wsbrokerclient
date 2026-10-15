@@ -2,17 +2,17 @@
 package restclient
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 )
 
 // PublishRequest defines the JSON payload for publishing messages via REST API endpoints.
 type PublishRequest struct {
-	Source  string          `json:"source"`
-	Target  string          `json:"target,omitempty"`
-	Type    string          `json:"type"`
-	Token   string          `json:"token,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`
-	Message string          `json:"message,omitempty"`
+	Source  string         `json:"source"`
+	Target  string         `json:"target,omitempty"`
+	Type    string         `json:"type"`
+	Token   string         `json:"token,omitempty"`
+	Data    jsontext.Value `json:"data,omitempty"`
+	Message string         `json:"message,omitempty"`
 }
 
 // PublishResponse defines the JSON response returned after a message is dispatched.

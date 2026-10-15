@@ -1,7 +1,7 @@
 package event_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/je4/wsbrokerclient/pkg/event"
@@ -160,5 +160,63 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	}
 	if errStr, ok := gotErrData.(string); !ok || errStr != "ntp server timeout" {
 		t.Errorf("expected error string 'ntp server timeout', got %v", gotErrData)
+	}
+
+	// 9. File Message & File Event
+	filePayload := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A} // PNG header
+	fileMsg := event.NewFileMessage("sample.png", "image/png", filePayload)
+	if fileMsg.Type() != event.TypeFile {
+		t.Errorf("expected fileMsg type %s, got %s", event.TypeFile, fileMsg.Type())
+	}
+	if fileMsg.Size != int64(len(filePayload)) {
+		t.Errorf("expected size %d, got %d", len(filePayload), fileMsg.Size)
+	}
+	if fileMsg.String() != "File: sample.png (image/png, 8 bytes)" {
+		t.Errorf("unexpected String representation: %s", fileMsg.String())
+	}
+
+	fileEvt, err := event.NewFileEvent("client-1", "channel-files", fileMsg, "auth-token-1")
+	if err != nil {
+		t.Fatalf("failed to create file event: %v", err)
+	}
+	if fileEvt.GetType() != event.TypeFile {
+		t.Errorf("expected event type %s, got %s", event.TypeFile, fileEvt.GetType())
+	}
+	if fileEvt.GetToken() != "auth-token-1" {
+		t.Errorf("expected token auth-token-1, got %s", fileEvt.GetToken())
+	}
+
+	// Test GetData with TypeFile
+	gotFileData, err := fileEvt.GetData()
+	if err != nil {
+		t.Fatalf("failed to get file event data: %v", err)
+	}
+	unmarshaledFileMsg, ok := gotFileData.(*event.FileMessage)
+	if !ok {
+		t.Fatalf("expected *event.FileMessage, got %T", gotFileData)
+	}
+	if unmarshaledFileMsg.Filename != "sample.png" || unmarshaledFileMsg.MimeType != "image/png" || unmarshaledFileMsg.Size != 8 {
+		t.Errorf("unexpected file metadata: %+v", unmarshaledFileMsg)
+	}
+	if string(unmarshaledFileMsg.Data) != string(filePayload) {
+		t.Errorf("payload mismatch: %v vs %v", unmarshaledFileMsg.Data, filePayload)
+	}
+
+	// Test UnmarshalData
+	var directFileMsg event.FileMessage
+	if err := fileEvt.UnmarshalData(&directFileMsg); err != nil {
+		t.Fatalf("failed to unmarshal file data directly: %v", err)
+	}
+	if directFileMsg.Filename != "sample.png" || directFileMsg.MimeType != "image/png" {
+		t.Errorf("unexpected direct unmarshal result: %+v", directFileMsg)
+	}
+
+	// Test NewEvent with DataInterface
+	evtFromInterface, err := event.NewEvent(fileMsg, "target-ch", "tok")
+	if err != nil {
+		t.Fatalf("failed to create event from DataInterface for FileMessage: %v", err)
+	}
+	if evtFromInterface.GetType() != event.TypeFile {
+		t.Errorf("expected type %s, got %s", event.TypeFile, evtFromInterface.GetType())
 	}
 }

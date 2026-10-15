@@ -9,6 +9,7 @@
 | `attach` | `event.TypeAttach` | Subscribes the client to a channel. |
 | `detach` | `event.TypeDetach` | Unsubscribes the client from a channel. |
 | `message` | `event.TypeMessage` | Transmits a broadcast or point-to-point data payload. |
+| `file` | `event.TypeFile` | Transmits a binary file payload with attached metadata (filename, mime-type, size). |
 | `ping` | `event.TypePing` | Ping heartbeat frame. |
 | `pong` | `event.TypePong` | Pong heartbeat response frame. |
 
@@ -30,6 +31,7 @@
 ## Helper Methods
 
 - `NewMessageEvent(source, target string, data any) (*Event, error)`: Constructs a message event with arbitrary JSON-serializable payload.
+- `NewFileEvent(source, target string, file *FileMessage, token ...string) (*Event, error)`: Constructs a file event carrying binary payload and metadata.
 - `NewAttachEvent(source, channel string) (*Event, error)`: Constructs a channel subscription event.
 - `NewDetachEvent(source, channel string) (*Event, error)`: Constructs a channel unsubscription event.
 - `NewPingEvent(source string, data ...any) (*Event, error)`: Constructs a ping heartbeat.
