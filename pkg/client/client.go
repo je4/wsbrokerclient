@@ -65,6 +65,8 @@ type Client struct {
 	onError      []func(error)
 	lifecycleMu  sync.RWMutex
 
+	clockOffset atomic.Int64 // in nanoseconds
+
 	ctx       context.Context
 	cancel    context.CancelFunc
 	reconnCh  chan struct{}

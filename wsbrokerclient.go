@@ -4,6 +4,7 @@
 package wsbrokerclient
 
 import (
+	"github.com/beevik/ntp"
 	"github.com/je4/wsbrokerclient/pkg/client"
 	"github.com/je4/wsbrokerclient/pkg/event"
 	"github.com/je4/wsbrokerclient/pkg/restclient"
@@ -40,6 +41,12 @@ type (
 
 	// EventType is the category of message.
 	EventType = event.EventType
+
+	// NTPResponse is the NTP query response from github.com/beevik/ntp.
+	NTPResponse = ntp.Response
+
+	// NTPQueryOptions holds options for querying NTP time.
+	NTPQueryOptions = ntp.QueryOptions
 
 	// RESTClient is the HTTP client for WSBroker REST APIs.
 	RESTClient = restclient.RESTClient

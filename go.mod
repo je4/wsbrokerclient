@@ -13,6 +13,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/beevik/ntp v1.6.0 // indirect
 	github.com/google/certificate-transparency-go v1.3.3 // indirect
 	github.com/je4/trustutil/v2 v2.0.31 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
