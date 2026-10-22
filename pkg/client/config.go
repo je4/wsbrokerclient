@@ -50,6 +50,9 @@ type Config struct {
 	// PingInterval is the interval at which client-side heartbeat pings are sent (0 = disabled).
 	PingInterval time.Duration `json:"ping_interval" toml:"ping_interval"`
 
+	// ReadLimit is the maximum message size in bytes that can be read over the WebSocket connection (default 16MB).
+	ReadLimit int64 `json:"read_limit" toml:"read_limit"`
+
 	// ConnectTimeout is the timeout duration for establishing a connection.
 	ConnectTimeout time.Duration `json:"connect_timeout" toml:"connect_timeout"`
 
@@ -70,6 +73,7 @@ func DefaultConfig() Config {
 		ReconnectBackoffFactor: 1.5,
 		MaxReconnectAttempts:   0, // infinite
 		PingInterval:           20 * time.Second,
+		ReadLimit:              16 * 1024 * 1024, // 16 MB default read limit
 		ConnectTimeout:         10 * time.Second,
 		WriteTimeout:           5 * time.Second,
 	}

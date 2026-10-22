@@ -61,6 +61,7 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	conn.SetReadLimit(16 * 1024 * 1024)
 
 	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	clientName := "unknown"
@@ -126,7 +127,7 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case event.TypePing:
 			pongEvt, _ := event.NewPongEvent("mockbroker", clientName, evt.Data)
 			_ = wsjson.Write(r.Context(), conn, pongEvt)
-		case event.TypeMessage:
+		case event.TypeMessage, event.TypeFile:
 			// Direct or Channel fan-out
 			if targetConn, exists := s.connections[evt.Target]; exists {
 				_ = wsjson.Write(r.Context(), targetConn, &evt)
@@ -726,5 +727,81 @@ func TestBuildURLWithModesAndChannels(t *testing.T) {
 	_ = cli5.ConnectSync(ctx)
 	if requestedPath != "/ws/channel/alerts/ro" {
 		t.Errorf("expected path /ws/channel/alerts/ro, got %s", requestedPath)
+	}
+}
+
+func TestClient_LargePayload(t *testing.T) {
+	server := httptest.NewServer(newMockBrokerServer(""))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	sender, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("sender"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create sender: %v", err)
+	}
+	defer sender.Close()
+	if err := sender.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect sender: %v", err)
+	}
+
+	receiver, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("receiver"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create receiver: %v", err)
+	}
+	defer receiver.Close()
+
+	received := make(chan *event.Event, 1)
+	receiver.OnEvent(func(evt *event.Event) {
+		if evt.Target == "receiver" {
+			received <- evt
+		}
+	})
+
+	if err := receiver.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect receiver: %v", err)
+	}
+
+	// Create a payload larger than 32 KiB (e.g. 64 KiB screenshot / file message)
+	largeData := make([]byte, 64*1024)
+	for i := range largeData {
+		largeData[i] = byte(i % 256)
+	}
+
+	fileMsg := event.NewFileMessage("test_screenshot.jpg", "image/jpeg", largeData)
+	evt, err := event.NewFileEvent("sender", "receiver", fileMsg)
+	if err != nil {
+		t.Fatalf("failed to create file event: %v", err)
+	}
+
+	if err := sender.Send(ctx, evt); err != nil {
+		t.Fatalf("failed to send large event: %v", err)
+	}
+
+	select {
+	case recEvt := <-received:
+		data, err := recEvt.GetData()
+		if err != nil {
+			t.Fatalf("failed to parse received file message: %v", err)
+		}
+		fileContent, ok := data.(*event.FileMessage)
+		if !ok {
+			t.Fatalf("expected *event.FileMessage, got %T", data)
+		}
+		if len(fileContent.Data) != len(largeData) {
+			t.Fatalf("expected payload size %d, got %d", len(largeData), len(fileContent.Data))
+		}
+		if fileContent.Filename != "test_screenshot.jpg" {
+			t.Errorf("expected filename test_screenshot.jpg, got %s", fileContent.Filename)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for large event")
 	}
 }

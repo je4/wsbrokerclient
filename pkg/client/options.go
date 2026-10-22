@@ -90,6 +90,13 @@ func WithPingInterval(interval time.Duration) Option {
 	}
 }
 
+// WithReadLimit sets the maximum message size in bytes for reading WebSocket frames.
+func WithReadLimit(limit int64) Option {
+	return func(c *Config) {
+		c.ReadLimit = limit
+	}
+}
+
 // WithConnectTimeout sets the timeout for establishing connections.
 func WithConnectTimeout(timeout time.Duration) Option {
 	return func(c *Config) {

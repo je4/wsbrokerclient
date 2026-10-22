@@ -96,6 +96,9 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 	if cfg.WriteTimeout <= 0 {
 		cfg.WriteTimeout = 5 * time.Second
 	}
+	if cfg.ReadLimit <= 0 {
+		cfg.ReadLimit = 16 * 1024 * 1024
+	}
 
 	logger := cfg.Logger
 	if logger == nil {
@@ -350,6 +353,10 @@ func (c *Client) dial(ctx context.Context) error {
 			_ = resp.Body.Close()
 		}
 		return errors.Wrapf(err, "websocket dial error to %s", wsURL)
+	}
+
+	if c.config.ReadLimit > 0 {
+		conn.SetReadLimit(c.config.ReadLimit)
 	}
 
 	c.connMu.Lock()
