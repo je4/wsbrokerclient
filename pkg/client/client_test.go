@@ -944,3 +944,100 @@ func TestClient_QueryChannelInfo(t *testing.T) {
 		t.Errorf("expected 'client is not connected' error, got %v", err)
 	}
 }
+
+func TestClient_RequestReply(t *testing.T) {
+	server := httptest.NewServer(newMockBrokerServer(""))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli1, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("requester"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create requester: %v", err)
+	}
+	defer cli1.Close()
+	if err := cli1.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect requester: %v", err)
+	}
+
+	cli2, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("responder"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create responder: %v", err)
+	}
+	defer cli2.Close()
+	if err := cli2.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect responder: %v", err)
+	}
+
+	// Responder listens for direct messages and responds
+	cli2.OnDirect(func(evt *event.Event) {
+		var reqMsg string
+		_ = evt.UnmarshalData(&reqMsg)
+
+		respEvt, _ := event.NewMessageEvent("responder", evt.Source, fmt.Sprintf("echo:%s", reqMsg))
+		respEvt.Token = evt.Token
+		_ = cli2.Send(context.Background(), respEvt)
+	})
+
+	// 1. Successful request with auto-generated token
+	reqEvt, err := event.NewMessageEvent("", "responder", "hello-world")
+	if err != nil {
+		t.Fatalf("failed to create request event: %v", err)
+	}
+
+	resp, err := cli1.Request(ctx, reqEvt)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if resp.Token == "" {
+		t.Error("expected non-empty correlation token in response")
+	}
+	var respMsg string
+	if err := resp.UnmarshalData(&respMsg); err != nil {
+		t.Fatalf("failed to unmarshal response data: %v", err)
+	}
+	if respMsg != "echo:hello-world" {
+		t.Errorf("expected 'echo:hello-world', got '%s'", respMsg)
+	}
+
+	// 2. Request with explicit token
+	customToken := "custom-token-12345"
+	reqEvt2, _ := event.NewMessageEvent("", "responder", "custom-token-test")
+	reqEvt2.Token = customToken
+
+	resp2, err := cli1.Request(ctx, reqEvt2)
+	if err != nil {
+		t.Fatalf("Request with explicit token failed: %v", err)
+	}
+	if resp2.Token != customToken {
+		t.Errorf("expected token '%s', got '%s'", customToken, resp2.Token)
+	}
+
+	// 3. Request timeout
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer timeoutCancel()
+	reqEvtSilent, _ := event.NewMessageEvent("", "non-existent-client", "will-timeout")
+	_, err = cli1.Request(timeoutCtx, reqEvtSilent)
+	if err == nil {
+		t.Error("expected timeout error for non-existent target, got nil")
+	}
+
+	// 4. GenerateToken verification
+	tok, err := client.GenerateToken()
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+	if len(tok) != 32 { // 16 bytes hex-encoded = 32 chars
+		t.Errorf("expected 32 character hex token, got %d chars: %s", len(tok), tok)
+	}
+}

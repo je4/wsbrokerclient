@@ -15,6 +15,12 @@ type (
 	// Client is the WebSocket client for WSBroker.
 	Client = client.Client
 
+	// ClientInterface defines the standard interface for communicating with a WSBroker server.
+	ClientInterface = client.ClientInterface
+
+	// BrokerClient is an alias for ClientInterface for compatibility with downstream controllers and clients.
+	BrokerClient = client.BrokerClient
+
 	// Config defines client configuration options.
 	Config = client.Config
 
@@ -41,6 +47,9 @@ type (
 
 	// EventType is the category of message.
 	EventType = event.EventType
+
+	// WSMessage represents a logged WebSocket message event for telemetry and debugging.
+	WSMessage = event.WSMessage
 
 	// NTPResponse is the NTP query response from github.com/beevik/ntp.
 	NTPResponse = ntp.Response
@@ -159,4 +168,6 @@ var (
 	NewChannelInfoQueryEvent    = event.NewChannelInfoQueryEvent
 	NewChannelInfoResponseEvent = event.NewChannelInfoResponseEvent
 	NewChannelInfoErrorEvent    = event.NewChannelInfoErrorEvent
+	NewWSMessage                = event.NewWSMessage
+	GenerateToken               = client.GenerateToken
 )

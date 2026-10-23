@@ -299,4 +299,24 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	if errStr, ok := gotCiErrData.(string); !ok || errStr != "access denied to channel" {
 		t.Errorf("expected error string 'access denied to channel', got %v", gotCiErrData)
 	}
+
+	// 11. WSMessage & NewWSMessage
+	wsMsg := event.NewWSMessage("in", evt)
+	if wsMsg.Direction != "in" {
+		t.Errorf("expected direction 'in', got %s", wsMsg.Direction)
+	}
+	if wsMsg.Type != string(event.TypeMessage) {
+		t.Errorf("expected type '%s', got %s", event.TypeMessage, wsMsg.Type)
+	}
+	if wsMsg.Source != "client-1" {
+		t.Errorf("expected source 'client-1', got %s", wsMsg.Source)
+	}
+	if wsMsg.Target != "channel-alerts" {
+		t.Errorf("expected target 'channel-alerts', got %s", wsMsg.Target)
+	}
+
+	nilWSMsg := event.NewWSMessage("out", nil)
+	if nilWSMsg.Direction != "out" {
+		t.Errorf("expected direction 'out', got %s", nilWSMsg.Direction)
+	}
 }

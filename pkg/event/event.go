@@ -6,6 +6,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"time"
 
 	"emperror.dev/errors"
 )
@@ -491,3 +492,32 @@ func (c *ChannelInfo) Type() EventType {
 }
 
 var _ DataInterface = (*ChannelInfo)(nil)
+
+// WSMessage represents a logged or formatted WebSocket message event.
+// It is used for telemetry logging, debugging consoles, and message history ringbuffers.
+type WSMessage struct {
+	Timestamp time.Time `json:"timestamp"`
+	Direction string    `json:"direction"` // "in" (received) or "out" (sent)
+	Type      string    `json:"type"`      // "message", "file", "ping", "pong", "attach", etc.
+	Source    string    `json:"source"`
+	Target    string    `json:"target,omitempty"`
+	Token     string    `json:"token,omitempty"`
+	Data      string    `json:"data,omitempty"`
+}
+
+// NewWSMessage converts an Event into a WSMessage log entry.
+func NewWSMessage(direction string, evt *Event) WSMessage {
+	if evt == nil {
+		return WSMessage{Timestamp: time.Now().UTC(), Direction: direction}
+	}
+	dataStr, _ := evt.GetStringData()
+	return WSMessage{
+		Timestamp: time.Now().UTC(),
+		Direction: direction,
+		Type:      string(evt.Type),
+		Source:    evt.Source,
+		Target:    evt.Target,
+		Token:     evt.Token,
+		Data:      dataStr,
+	}
+}

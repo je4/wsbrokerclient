@@ -28,6 +28,8 @@ type listenerEntry struct {
 	h  EventHandler
 }
 
+var _ ClientInterface = (*Client)(nil)
+
 // Client is the primary interface for communicating with a WSBroker server.
 type Client struct {
 	config Config
@@ -57,6 +59,10 @@ type Client struct {
 	// Channel subscriptions (stream-based)
 	subscriptions map[string][]*subscription
 	subMu         sync.RWMutex
+
+	// RPC / Request-Reply waiters correlated by event.Token
+	waiters   map[string]chan *event.Event
+	waitersMu sync.RWMutex
 
 	// Lifecycle callbacks
 	onConnect    []func()
@@ -134,6 +140,7 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 		typeListeners: make(map[event.EventType][]listenerEntry),
 		chanListeners: make(map[string][]listenerEntry),
 		subscriptions: make(map[string][]*subscription),
+		waiters:       make(map[string]chan *event.Event),
 		ctx:           ctx,
 		cancel:        cancel,
 		reconnCh:      make(chan struct{}, 1),
@@ -464,6 +471,20 @@ func (c *Client) handleIncomingEvent(evt *event.Event) {
 		return
 	}
 
+	// Dispatch to correlation token waiters
+	if evt.Token != "" {
+		c.waitersMu.RLock()
+		ch, found := c.waiters[evt.Token]
+		c.waitersMu.RUnlock()
+		if found {
+			select {
+			case ch <- evt:
+			default:
+				c.logger.Warn().Str("token", evt.Token).Msg("waiter channel blocked or full")
+			}
+		}
+	}
+
 	// Dispatch to subscribers & listeners
 	c.listenersMu.RLock()
 	var global []EventHandler
@@ -681,6 +702,70 @@ func (c *Client) Broadcast(ctx context.Context, channel string, data any) error 
 // SendDirect sends a direct message to a named client.
 func (c *Client) SendDirect(ctx context.Context, targetClient string, data any) error {
 	return c.SendMessage(ctx, targetClient, data)
+}
+
+// GenerateToken creates a cryptographically unique 16-byte random hex token.
+func GenerateToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", errors.Wrap(err, "failed to read secure random bytes")
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// Request sends an event envelope and waits synchronously for a correlated response matching evt.Token.
+// If evt.Token is empty, a unique random token is automatically generated.
+// If evt.Source is empty, it is set to the client's configured name.
+func (c *Client) Request(ctx context.Context, evt *event.Event) (*event.Event, error) {
+	if c.closed.Load() {
+		return nil, errors.New("client is closed")
+	}
+	if evt == nil {
+		return nil, errors.New("cannot send nil request event")
+	}
+	if evt.Token == "" {
+		tok, err := GenerateToken()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to generate correlation token")
+		}
+		evt.Token = tok
+	}
+	if evt.Source == "" {
+		evt.Source = c.clientName
+	}
+
+	ch := c.registerWaiter(evt.Token)
+	defer c.unregisterWaiter(evt.Token)
+
+	if err := c.Send(ctx, evt); err != nil {
+		return nil, errors.Wrap(err, "failed to send request event")
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, errors.Wrap(ctx.Err(), "request canceled or timed out waiting for response")
+	case <-c.ctx.Done():
+		return nil, errors.New("client closed while waiting for response")
+	case resp, ok := <-ch:
+		if !ok || resp == nil {
+			return nil, errors.New("response channel closed")
+		}
+		return resp, nil
+	}
+}
+
+func (c *Client) registerWaiter(token string) chan *event.Event {
+	ch := make(chan *event.Event, 1)
+	c.waitersMu.Lock()
+	c.waiters[token] = ch
+	c.waitersMu.Unlock()
+	return ch
+}
+
+func (c *Client) unregisterWaiter(token string) {
+	c.waitersMu.Lock()
+	delete(c.waiters, token)
+	c.waitersMu.Unlock()
 }
 
 // Attach subscribes the client to one or more channels dynamically.
