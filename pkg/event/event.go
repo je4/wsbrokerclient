@@ -3,6 +3,8 @@
 package event
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
@@ -10,6 +12,16 @@ import (
 
 	"emperror.dev/errors"
 )
+
+// GenerateEventID generates a cryptographically secure, random 16-byte (32-char hex) unique event identifier.
+func GenerateEventID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Fallback to nanosecond timestamp if crypto/rand fails
+		return fmt.Sprintf("evt-%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
 
 // EventType represents the category of event sent across WebSocket channels.
 type EventType string
@@ -51,11 +63,13 @@ type DataInterface interface {
 
 // Event represents a standardized message envelope transmitted across WebSockets and REST APIs.
 type Event struct {
-	Type   EventType      `json:"type"`
-	Source string         `json:"source"`
-	Target string         `json:"target"`
-	Token  string         `json:"token,omitempty"`
-	Data   jsontext.Value `json:"data"`
+	ID      string         `json:"id,omitempty"`
+	Type    EventType      `json:"type"`
+	Source  string         `json:"source"`
+	Target  string         `json:"target"`
+	Channel string         `json:"channel,omitempty"`
+	Token   string         `json:"token,omitempty"`
+	Data    jsontext.Value `json:"data"`
 }
 
 // String returns a human-readable summary of the Event.
@@ -63,7 +77,46 @@ func (e *Event) String() string {
 	if e == nil {
 		return "<nil event>"
 	}
+	if e.Channel != "" && e.ID != "" {
+		return fmt.Sprintf("%s [%s -> %s (channel: %s)] (%s)", e.Type, e.Source, e.Target, e.Channel, e.ID)
+	}
+	if e.Channel != "" {
+		return fmt.Sprintf("%s [%s -> %s (channel: %s)]", e.Type, e.Source, e.Target, e.Channel)
+	}
+	if e.ID != "" {
+		return fmt.Sprintf("%s [%s -> %s] (%s)", e.Type, e.Source, e.Target, e.ID)
+	}
 	return fmt.Sprintf("%s [%s -> %s]", e.Type, e.Source, e.Target)
+}
+
+// GetID returns the event identifier.
+func (e *Event) GetID() string {
+	if e == nil {
+		return ""
+	}
+	return e.ID
+}
+
+// SetID sets the event identifier.
+func (e *Event) SetID(id string) {
+	if e != nil {
+		e.ID = id
+	}
+}
+
+// GetChannel returns the delivery channel name, if dispatched over a channel.
+func (e *Event) GetChannel() string {
+	if e == nil {
+		return ""
+	}
+	return e.Channel
+}
+
+// SetChannel sets the delivery channel name.
+func (e *Event) SetChannel(channel string) {
+	if e != nil {
+		e.Channel = channel
+	}
 }
 
 // GetType returns the event type.
@@ -498,9 +551,11 @@ var _ DataInterface = (*ChannelInfo)(nil)
 type WSMessage struct {
 	Timestamp time.Time `json:"timestamp"`
 	Direction string    `json:"direction"` // "in" (received) or "out" (sent)
-	Type      string    `json:"type"`      // "message", "file", "ping", "pong", "attach", etc.
+	ID        string    `json:"id,omitempty"`
+	Type      string    `json:"type"` // "message", "file", "ping", "pong", "attach", etc.
 	Source    string    `json:"source"`
 	Target    string    `json:"target,omitempty"`
+	Channel   string    `json:"channel,omitempty"`
 	Token     string    `json:"token,omitempty"`
 	Data      string    `json:"data,omitempty"`
 }
@@ -514,9 +569,11 @@ func NewWSMessage(direction string, evt *Event) WSMessage {
 	return WSMessage{
 		Timestamp: time.Now().UTC(),
 		Direction: direction,
+		ID:        evt.ID,
 		Type:      string(evt.Type),
 		Source:    evt.Source,
 		Target:    evt.Target,
+		Channel:   evt.Channel,
 		Token:     evt.Token,
 		Data:      dataStr,
 	}

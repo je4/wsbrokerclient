@@ -9,6 +9,7 @@ import (
 
 // PublishRequest defines the JSON payload for publishing messages via REST API endpoints.
 type PublishRequest struct {
+	ID      string         `json:"id,omitempty"`
 	Source  string         `json:"source"`
 	Target  string         `json:"target,omitempty"`
 	Type    string         `json:"type"`
@@ -19,7 +20,9 @@ type PublishRequest struct {
 
 // PublishResponse defines the JSON response returned after a message is dispatched.
 type PublishResponse struct {
+	ID          string `json:"id,omitempty"`
 	Target      string `json:"target"`
+	Channel     string `json:"channel,omitempty"`
 	Type        string `json:"type"`
 	Sent        bool   `json:"sent"`
 	Subscribers int    `json:"subscribers"`

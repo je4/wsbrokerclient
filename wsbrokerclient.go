@@ -169,5 +169,6 @@ var (
 	NewChannelInfoResponseEvent = event.NewChannelInfoResponseEvent
 	NewChannelInfoErrorEvent    = event.NewChannelInfoErrorEvent
 	NewWSMessage                = event.NewWSMessage
+	GenerateEventID             = event.GenerateEventID
 	GenerateToken               = client.GenerateToken
 )

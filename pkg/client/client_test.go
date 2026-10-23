@@ -152,10 +152,14 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				_ = wsjson.Write(r.Context(), conn, respEvt)
 			}
 		case event.TypeMessage, event.TypeFile:
+			if evt.ID == "" {
+				evt.ID = event.GenerateEventID()
+			}
 			// Direct or Channel fan-out
 			if targetConn, exists := s.connections[evt.Target]; exists {
 				_ = wsjson.Write(r.Context(), targetConn, &evt)
 			} else if members, isGroup := s.groups[evt.Target]; isGroup {
+				evt.Channel = evt.Target
 				for _, m := range members {
 					if memberConn, ok := s.connections[m]; ok {
 						_ = wsjson.Write(r.Context(), memberConn, &evt)
@@ -225,6 +229,12 @@ func TestClientConnectAndPublish(t *testing.T) {
 	case evt := <-receivedCh:
 		if evt.Target != "alerts" {
 			t.Errorf("expected target alerts, got %s", evt.Target)
+		}
+		if evt.Channel != "alerts" {
+			t.Errorf("expected channel alerts, got %s", evt.Channel)
+		}
+		if evt.ID == "" {
+			t.Errorf("expected non-empty event ID")
 		}
 		var data map[string]string
 		if err := evt.UnmarshalData(&data); err != nil {
@@ -1039,5 +1049,90 @@ func TestClient_RequestReply(t *testing.T) {
 	}
 	if len(tok) != 32 { // 16 bytes hex-encoded = 32 chars
 		t.Errorf("expected 32 character hex token, got %d chars: %s", len(tok), tok)
+	}
+}
+
+func TestClient_ChannelAndIDRouting(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("receiver-client"),
+		client.WithInitialChannels("sports"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli.Close()
+
+	if err := cli.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect client: %v", err)
+	}
+
+	chanCh := make(chan *event.Event, 5)
+	cli.OnChannel("sports", func(evt *event.Event) {
+		chanCh <- evt
+	})
+
+	sub, err := cli.Subscribe(ctx, "sports")
+	if err != nil {
+		t.Fatalf("failed to subscribe: %v", err)
+	}
+	defer sub.Unsubscribe()
+
+	// 1. Send broadcast from publisher
+	pubCli, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("publisher"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create publisher: %v", err)
+	}
+	defer pubCli.Close()
+	if err := pubCli.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect publisher: %v", err)
+	}
+
+	if err := pubCli.Broadcast(ctx, "sports", "goal scored"); err != nil {
+		t.Fatalf("failed to broadcast: %v", err)
+	}
+
+	// Verify channel listener received event with ID and Channel
+	select {
+	case evt := <-chanCh:
+		if evt.Channel != "sports" {
+			t.Errorf("expected Channel 'sports', got %q", evt.Channel)
+		}
+		if evt.ID == "" {
+			t.Errorf("expected non-empty event ID")
+		}
+		str, _ := evt.GetStringData()
+		if str != "goal scored" {
+			t.Errorf("expected 'goal scored', got %q", str)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for OnChannel listener")
+	}
+
+	// Verify stream subscription received event with ID and Channel
+	select {
+	case evt := <-sub.Events():
+		if evt.Channel != "sports" {
+			t.Errorf("expected subscription Channel 'sports', got %q", evt.Channel)
+		}
+		if evt.ID == "" {
+			t.Errorf("expected non-empty event ID")
+		}
+		str, _ := evt.GetStringData()
+		if str != "goal scored" {
+			t.Errorf("expected 'goal scored', got %q", str)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for Subscription events channel")
 	}
 }

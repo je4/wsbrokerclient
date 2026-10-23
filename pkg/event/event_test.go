@@ -301,9 +301,17 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	}
 
 	// 11. WSMessage & NewWSMessage
+	evt.ID = "evt-12345"
+	evt.Channel = "channel-alerts"
 	wsMsg := event.NewWSMessage("in", evt)
 	if wsMsg.Direction != "in" {
 		t.Errorf("expected direction 'in', got %s", wsMsg.Direction)
+	}
+	if wsMsg.ID != "evt-12345" {
+		t.Errorf("expected id 'evt-12345', got %s", wsMsg.ID)
+	}
+	if wsMsg.Channel != "channel-alerts" {
+		t.Errorf("expected channel 'channel-alerts', got %s", wsMsg.Channel)
 	}
 	if wsMsg.Type != string(event.TypeMessage) {
 		t.Errorf("expected type '%s', got %s", event.TypeMessage, wsMsg.Type)
@@ -319,4 +327,91 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	if nilWSMsg.Direction != "out" {
 		t.Errorf("expected direction 'out', got %s", nilWSMsg.Direction)
 	}
+}
+
+func TestEventIDAndChannelHelpers(t *testing.T) {
+	// Test GenerateEventID uniqueness and length
+	id1 := event.GenerateEventID()
+	id2 := event.GenerateEventID()
+	if id1 == "" || id2 == "" {
+		t.Fatalf("expected non-empty event IDs, got %q and %q", id1, id2)
+	}
+	if id1 == id2 {
+		t.Fatalf("expected unique event IDs, got duplicate %q", id1)
+	}
+	if len(id1) < 16 {
+		t.Errorf("expected sufficiently long event ID, got length %d", len(id1))
+	}
+
+	// Test Getters and Setters on nil Event
+	var nilEvt *event.Event
+	if nilEvt.GetID() != "" {
+		t.Errorf("expected empty ID for nil event, got %q", nilEvt.GetID())
+	}
+	if nilEvt.GetChannel() != "" {
+		t.Errorf("expected empty Channel for nil event, got %q", nilEvt.GetChannel())
+	}
+	nilEvt.SetID("test-id")
+	nilEvt.SetChannel("test-ch")
+
+	// Test Getters and Setters on active Event
+	evt := &event.Event{}
+	evt.SetID("evt-custom-99")
+	evt.SetChannel("room-dev")
+	if evt.GetID() != "evt-custom-99" {
+		t.Errorf("expected ID 'evt-custom-99', got %q", evt.GetID())
+	}
+	if evt.GetChannel() != "room-dev" {
+		t.Errorf("expected Channel 'room-dev', got %q", evt.GetChannel())
+	}
+
+	// Test String() format with Channel and ID
+	strWithCh := evt.String()
+	if strWithCh == "" || !containsSubstring(strWithCh, "room-dev") || !containsSubstring(strWithCh, "evt-custom-99") {
+		t.Errorf("unexpected event String() representation: %s", strWithCh)
+	}
+
+	evtOnlyCh := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1"}
+	if evtOnlyCh.String() != "message [s -> t (channel: ch1)]" {
+		t.Errorf("expected 'message [s -> t (channel: ch1)]', got %q", evtOnlyCh.String())
+	}
+
+	evtOnlyID := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", ID: "id1"}
+	if evtOnlyID.String() != "message [s -> t] (id1)" {
+		t.Errorf("expected 'message [s -> t] (id1)', got %q", evtOnlyID.String())
+	}
+
+	evtBoth := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1", ID: "id1"}
+	if evtBoth.String() != "message [s -> t (channel: ch1)] (id1)" {
+		t.Errorf("expected 'message [s -> t (channel: ch1)] (id1)', got %q", evtBoth.String())
+	}
+
+	// Test JSON serialization preserves ID and Channel
+	b, err := json.Marshal(evt)
+	if err != nil {
+		t.Fatalf("failed to marshal event: %v", err)
+	}
+	var unmarshaled event.Event
+	if err := json.Unmarshal(b, &unmarshaled); err != nil {
+		t.Fatalf("failed to unmarshal event: %v", err)
+	}
+	if unmarshaled.ID != "evt-custom-99" {
+		t.Errorf("expected unmarshaled ID 'evt-custom-99', got %q", unmarshaled.ID)
+	}
+	if unmarshaled.Channel != "room-dev" {
+		t.Errorf("expected unmarshaled Channel 'room-dev', got %q", unmarshaled.Channel)
+	}
+}
+
+func containsSubstring(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || stringContains(s, sub))
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

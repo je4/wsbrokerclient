@@ -172,8 +172,11 @@ func (c *ChatClient) handleIncomingEvent(evt *event.Event) {
 	if evt == nil {
 		return
 	}
-	// The event target corresponds to the channel; fallback to source if direct
-	channel := evt.Target
+	// Determine channel: prefer explicit evt.Channel, fallback to evt.Target, then evt.Source
+	channel := evt.Channel
+	if channel == "" {
+		channel = evt.Target
+	}
 	if channel == "" {
 		channel = evt.Source
 	}
@@ -190,7 +193,10 @@ func (c *ChatClient) handleIncomingEvent(evt *event.Event) {
 		return
 	}
 
-	msgID := fmt.Sprintf("%d-%s", time.Now().UnixNano(), evt.Source)
+	msgID := evt.ID
+	if msgID == "" {
+		msgID = fmt.Sprintf("%d-%s", time.Now().UnixNano(), evt.Source)
+	}
 	c.store.AddMessage(ChatMessage{
 		ID:        msgID,
 		Sender:    evt.Source,

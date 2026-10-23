@@ -17,9 +17,11 @@
 
 ```json
 {
+  "id": "evt-a1b2c3d4",
   "type": "message",
   "source": "sensor-service",
   "target": "telemetry",
+  "channel": "telemetry",
   "token": "optional-auth-token",
   "data": {
     "temperature": 21.5,

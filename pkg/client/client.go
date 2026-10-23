@@ -454,7 +454,15 @@ func (c *Client) pingLoop(conn *websocket.Conn) {
 }
 
 func (c *Client) handleIncomingEvent(evt *event.Event) {
-	c.logger.Debug().Msgf("received event %s [%s -> %s]", evt.Type, evt.Source, evt.Target)
+	if evt.Channel != "" && evt.ID != "" {
+		c.logger.Debug().Msgf("received event %s [%s -> %s (channel: %s, id: %s)]", evt.Type, evt.Source, evt.Target, evt.Channel, evt.ID)
+	} else if evt.Channel != "" {
+		c.logger.Debug().Msgf("received event %s [%s -> %s (channel: %s)]", evt.Type, evt.Source, evt.Target, evt.Channel)
+	} else if evt.ID != "" {
+		c.logger.Debug().Msgf("received event %s [%s -> %s (id: %s)]", evt.Type, evt.Source, evt.Target, evt.ID)
+	} else {
+		c.logger.Debug().Msgf("received event %s [%s -> %s]", evt.Type, evt.Source, evt.Target)
+	}
 
 	// Automatic heartbeat response
 	if evt.Type == event.TypePing {
@@ -496,9 +504,25 @@ func (c *Client) handleIncomingEvent(evt *event.Event) {
 		byType = append(byType, entry.h)
 	}
 	var byChan []EventHandler
-	for _, entry := range c.chanListeners[evt.Target] {
-		byChan = append(byChan, entry.h)
+	seenListener := make(map[uint64]struct{})
+	addChanListeners := func(ch string) {
+		if ch == "" {
+			return
+		}
+		for _, entry := range c.chanListeners[ch] {
+			if _, exists := seenListener[entry.id]; !exists {
+				seenListener[entry.id] = struct{}{}
+				byChan = append(byChan, entry.h)
+			}
+		}
 	}
+	if evt.Channel != "" {
+		addChanListeners(evt.Channel)
+	}
+	if evt.Target != "" {
+		addChanListeners(evt.Target)
+	}
+
 	var direct []EventHandler
 	if evt.Target == c.clientName {
 		for _, entry := range c.directListeners {
@@ -522,7 +546,25 @@ func (c *Client) handleIncomingEvent(evt *event.Event) {
 
 	// Deliver to stream subscriptions
 	c.subMu.RLock()
-	subs := append([]*subscription(nil), c.subscriptions[evt.Target]...)
+	var subs []*subscription
+	seenSub := make(map[*subscription]struct{})
+	addSubscriptions := func(ch string) {
+		if ch == "" {
+			return
+		}
+		for _, sub := range c.subscriptions[ch] {
+			if _, exists := seenSub[sub]; !exists {
+				seenSub[sub] = struct{}{}
+				subs = append(subs, sub)
+			}
+		}
+	}
+	if evt.Channel != "" {
+		addSubscriptions(evt.Channel)
+	}
+	if evt.Target != "" {
+		addSubscriptions(evt.Target)
+	}
 	c.subMu.RUnlock()
 
 	for _, sub := range subs {
