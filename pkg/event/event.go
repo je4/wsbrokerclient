@@ -34,6 +34,12 @@ const (
 	TypeNTPResponse EventType = "ntp-response"
 	// TypeNTPError is sent by the server if NTP querying fails.
 	TypeNTPError EventType = "ntp-error"
+	// TypeChannelInfoQuery is sent by a client to query metadata and subscriber members of a channel.
+	TypeChannelInfoQuery EventType = "channel-info-query"
+	// TypeChannelInfoResponse is sent by the server with the ChannelInfo data.
+	TypeChannelInfoResponse EventType = "channel-info-response"
+	// TypeChannelInfoError is sent by the server if channel-info querying fails or is unauthorized.
+	TypeChannelInfoError EventType = "channel-info-error"
 )
 
 // DataInterface provides a contract for typed data objects that can supply their event type and string representation.
@@ -106,6 +112,11 @@ func (e *Event) GetData() (interface{}, error) {
 		var fm FileMessage
 		if err := json.Unmarshal(e.Data, &fm); err == nil {
 			return &fm, nil
+		}
+	case TypeChannelInfoResponse:
+		var ci ChannelInfo
+		if err := json.Unmarshal(e.Data, &ci); err == nil {
+			return &ci, nil
 		}
 	}
 	var msg string
@@ -304,6 +315,57 @@ func NewNTPErrorEvent(source, target, errMsg string) (*Event, error) {
 	}, nil
 }
 
+// NewChannelInfoQueryEvent creates an Event of type TypeChannelInfoQuery for querying channel metadata and members.
+// The target channel name can be passed as target (and is also stored as string data payload).
+func NewChannelInfoQueryEvent(source, target string) (*Event, error) {
+	raw, err := json.Marshal(target)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal channel info query target: %s", target)
+	}
+	return &Event{
+		Type:   TypeChannelInfoQuery,
+		Source: source,
+		Target: target,
+		Data:   raw,
+	}, nil
+}
+
+// NewChannelInfoResponseEvent creates an Event of type TypeChannelInfoResponse containing ChannelInfo.
+func NewChannelInfoResponseEvent(target string, info ChannelInfo, source ...string) (*Event, error) {
+	src := "wsbroker"
+	if len(source) > 0 && source[0] != "" {
+		src = source[0]
+	}
+	raw, err := json.Marshal(info)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal channel info: %v", info)
+	}
+	return &Event{
+		Type:   TypeChannelInfoResponse,
+		Source: src,
+		Target: target,
+		Data:   raw,
+	}, nil
+}
+
+// NewChannelInfoErrorEvent creates an Event of type TypeChannelInfoError with an error message string.
+func NewChannelInfoErrorEvent(target, errMsg string, source ...string) (*Event, error) {
+	src := "wsbroker"
+	if len(source) > 0 && source[0] != "" {
+		src = source[0]
+	}
+	raw, err := json.Marshal(errMsg)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal channel info error message: %s", errMsg)
+	}
+	return &Event{
+		Type:   TypeChannelInfoError,
+		Source: src,
+		Target: target,
+		Data:   raw,
+	}, nil
+}
+
 func marshalPayload(data any) (jsontext.Value, error) {
 	if data == nil {
 		return nil, nil
@@ -407,3 +469,25 @@ func (f *FileMessage) Type() EventType {
 }
 
 var _ DataInterface = (*FileMessage)(nil)
+
+// ChannelInfo describes a channel, its total subscriber count, and its connected client members.
+type ChannelInfo struct {
+	Name        string   `json:"name"`
+	Subscribers int      `json:"subscribers"`
+	Clients     []string `json:"clients"`
+}
+
+// String returns a human-readable representation of ChannelInfo.
+func (c *ChannelInfo) String() string {
+	if c == nil {
+		return "<nil channel info>"
+	}
+	return fmt.Sprintf("Channel: %s (%d subscribers)", c.Name, c.Subscribers)
+}
+
+// Type returns the EventType for ChannelInfo response messages.
+func (c *ChannelInfo) Type() EventType {
+	return TypeChannelInfoResponse
+}
+
+var _ DataInterface = (*ChannelInfo)(nil)

@@ -219,4 +219,84 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	if evtFromInterface.GetType() != event.TypeFile {
 		t.Errorf("expected type %s, got %s", event.TypeFile, evtFromInterface.GetType())
 	}
+
+	// 10. Channel Info Query, Response & Error Events
+	ciQuery, err := event.NewChannelInfoQueryEvent("client-1", "channel-alerts")
+	if err != nil {
+		t.Fatalf("failed to create channel info query event: %v", err)
+	}
+	if ciQuery.GetType() != event.TypeChannelInfoQuery {
+		t.Errorf("expected type %s, got %s", event.TypeChannelInfoQuery, ciQuery.GetType())
+	}
+	if ciQuery.GetTarget() != "channel-alerts" {
+		t.Errorf("expected target 'channel-alerts', got %s", ciQuery.GetTarget())
+	}
+	gotQueryData, err := ciQuery.GetData()
+	if err != nil {
+		t.Fatalf("failed to get channel info query data: %v", err)
+	}
+	if qStr, ok := gotQueryData.(string); !ok || qStr != "channel-alerts" {
+		t.Errorf("expected query data 'channel-alerts', got %v", gotQueryData)
+	}
+
+	info := event.ChannelInfo{
+		Name:        "channel-alerts",
+		Subscribers: 2,
+		Clients:     []string{"client-1", "client-2"},
+	}
+	if info.Type() != event.TypeChannelInfoResponse {
+		t.Errorf("expected info type %s, got %s", event.TypeChannelInfoResponse, info.Type())
+	}
+	if info.String() != "Channel: channel-alerts (2 subscribers)" {
+		t.Errorf("unexpected ChannelInfo String: %s", info.String())
+	}
+
+	ciResp, err := event.NewChannelInfoResponseEvent("client-1", info)
+	if err != nil {
+		t.Fatalf("failed to create channel info response event: %v", err)
+	}
+	if ciResp.GetType() != event.TypeChannelInfoResponse {
+		t.Errorf("expected type %s, got %s", event.TypeChannelInfoResponse, ciResp.GetType())
+	}
+	if ciResp.GetTarget() != "client-1" {
+		t.Errorf("expected target 'client-1', got %s", ciResp.GetTarget())
+	}
+	if ciResp.GetSource() != "wsbroker" {
+		t.Errorf("expected source 'wsbroker', got %s", ciResp.GetSource())
+	}
+
+	gotRespCiData, err := ciResp.GetData()
+	if err != nil {
+		t.Fatalf("failed to get channel info response data: %v", err)
+	}
+	unmarshaledCI, ok := gotRespCiData.(*event.ChannelInfo)
+	if !ok {
+		t.Fatalf("expected *event.ChannelInfo, got %T", gotRespCiData)
+	}
+	if unmarshaledCI.Name != "channel-alerts" || unmarshaledCI.Subscribers != 2 || len(unmarshaledCI.Clients) != 2 {
+		t.Errorf("unexpected unmarshaled ChannelInfo: %+v", unmarshaledCI)
+	}
+
+	var directCI event.ChannelInfo
+	if err := ciResp.UnmarshalData(&directCI); err != nil {
+		t.Fatalf("failed to unmarshal channel info directly: %v", err)
+	}
+	if directCI.Name != "channel-alerts" || directCI.Subscribers != 2 {
+		t.Errorf("unexpected direct unmarshal: %+v", directCI)
+	}
+
+	ciErr, err := event.NewChannelInfoErrorEvent("client-1", "access denied to channel")
+	if err != nil {
+		t.Fatalf("failed to create channel info error event: %v", err)
+	}
+	if ciErr.GetType() != event.TypeChannelInfoError {
+		t.Errorf("expected type %s, got %s", event.TypeChannelInfoError, ciErr.GetType())
+	}
+	gotCiErrData, err := ciErr.GetData()
+	if err != nil {
+		t.Fatalf("failed to get channel info error data: %v", err)
+	}
+	if errStr, ok := gotCiErrData.(string); !ok || errStr != "access denied to channel" {
+		t.Errorf("expected error string 'access denied to channel', got %v", gotCiErrData)
+	}
 }

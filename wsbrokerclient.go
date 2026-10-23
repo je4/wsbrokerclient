@@ -58,7 +58,10 @@ type (
 	RESTOption = restclient.Option
 
 	// ChannelInfo holds channel subscriber and client details.
-	ChannelInfo = restclient.ChannelInfo
+	ChannelInfo = event.ChannelInfo
+
+	// FileMessage represents a file attachment payload.
+	FileMessage = event.FileMessage
 
 	// PublishResponse is returned after a REST publish.
 	PublishResponse = restclient.PublishResponse
@@ -66,12 +69,19 @@ type (
 
 // Standard EventType constants.
 const (
-	TypeAttach        = event.TypeAttach
-	TypeDetach        = event.TypeDetach
-	TypeMessage       = event.TypeMessage
-	TypeStringMessage = event.TypeStringMessage
-	TypePing          = event.TypePing
-	TypePong          = event.TypePong
+	TypeAttach              = event.TypeAttach
+	TypeDetach              = event.TypeDetach
+	TypeMessage             = event.TypeMessage
+	TypeStringMessage       = event.TypeStringMessage
+	TypeFile                = event.TypeFile
+	TypePing                = event.TypePing
+	TypePong                = event.TypePong
+	TypeNTPQuery            = event.TypeNTPQuery
+	TypeNTPResponse         = event.TypeNTPResponse
+	TypeNTPError            = event.TypeNTPError
+	TypeChannelInfoQuery    = event.TypeChannelInfoQuery
+	TypeChannelInfoResponse = event.TypeChannelInfoResponse
+	TypeChannelInfoError    = event.TypeChannelInfoError
 )
 
 // Standard ConnectionState constants.
@@ -134,11 +144,19 @@ var (
 
 // Event constructors re-exported from event package.
 var (
-	NewEvent                = event.NewEvent
-	NewMessageEvent         = event.NewMessageEvent
-	NewAttachEvent          = event.NewAttachEvent
-	NewDetachEvent          = event.NewDetachEvent
-	NewPingEvent            = event.NewPingEvent
-	NewPongEvent            = event.NewPongEvent
-	NewGenericStringMessage = event.NewGenericStringMessage
+	NewEvent                    = event.NewEvent
+	NewMessageEvent             = event.NewMessageEvent
+	NewFileEvent                = event.NewFileEvent
+	NewFileMessage              = event.NewFileMessage
+	NewAttachEvent              = event.NewAttachEvent
+	NewDetachEvent              = event.NewDetachEvent
+	NewPingEvent                = event.NewPingEvent
+	NewPongEvent                = event.NewPongEvent
+	NewGenericStringMessage     = event.NewGenericStringMessage
+	NewNTPQueryEvent            = event.NewNTPQueryEvent
+	NewNTPResponseEvent         = event.NewNTPResponseEvent
+	NewNTPErrorEvent            = event.NewNTPErrorEvent
+	NewChannelInfoQueryEvent    = event.NewChannelInfoQueryEvent
+	NewChannelInfoResponseEvent = event.NewChannelInfoResponseEvent
+	NewChannelInfoErrorEvent    = event.NewChannelInfoErrorEvent
 )

@@ -3,6 +3,8 @@ package restclient
 
 import (
 	"encoding/json/jsontext"
+
+	"github.com/je4/wsbrokerclient/pkg/event"
 )
 
 // PublishRequest defines the JSON payload for publishing messages via REST API endpoints.
@@ -24,8 +26,4 @@ type PublishResponse struct {
 }
 
 // ChannelInfo describes a channel, its total subscriber count, and its connected client members.
-type ChannelInfo struct {
-	Name        string   `json:"name"`
-	Subscribers int      `json:"subscribers"`
-	Clients     []string `json:"clients,omitempty"`
-}
+type ChannelInfo = event.ChannelInfo

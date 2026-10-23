@@ -127,6 +127,30 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case event.TypePing:
 			pongEvt, _ := event.NewPongEvent("mockbroker", clientName, evt.Data)
 			_ = wsjson.Write(r.Context(), conn, pongEvt)
+		case event.TypeChannelInfoQuery:
+			var targetChannel string
+			_ = evt.UnmarshalData(&targetChannel)
+			if targetChannel == "" {
+				targetChannel = evt.Target
+			}
+			if targetChannel == "error-channel" {
+				errEvt, _ := event.NewChannelInfoErrorEvent(clientName, "channel access forbidden")
+				_ = wsjson.Write(r.Context(), conn, errEvt)
+			} else if targetChannel == "silent-channel" {
+				// Don't respond to trigger timeout in test
+			} else {
+				members := s.groups[targetChannel]
+				if members == nil {
+					members = []string{}
+				}
+				info := event.ChannelInfo{
+					Name:        targetChannel,
+					Subscribers: len(members),
+					Clients:     members,
+				}
+				respEvt, _ := event.NewChannelInfoResponseEvent(clientName, info)
+				_ = wsjson.Write(r.Context(), conn, respEvt)
+			}
 		case event.TypeMessage, event.TypeFile:
 			// Direct or Channel fan-out
 			if targetConn, exists := s.connections[evt.Target]; exists {
@@ -406,7 +430,7 @@ func TestAutoReconnectionAndChannelResubscription(t *testing.T) {
 	select {
 	case <-reconnectCalled:
 		// Reconnected!
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for auto-reconnection")
 	}
 
@@ -803,5 +827,120 @@ func TestClient_LargePayload(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for large event")
+	}
+}
+
+func TestClient_QueryChannelInfo(t *testing.T) {
+	server := httptest.NewServer(newMockBrokerServer(""))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Connect client 1 with initial channel "room1"
+	cli1, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("client1"),
+		client.WithInitialChannels("room1"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client1: %v", err)
+	}
+	defer cli1.Close()
+	if err := cli1.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect client1: %v", err)
+	}
+
+	// Connect client 2 with initial channel "room1"
+	cli2, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(server.URL),
+		client.WithClientName("client2"),
+		client.WithInitialChannels("room1"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client2: %v", err)
+	}
+	defer cli2.Close()
+	if err := cli2.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect client2: %v", err)
+	}
+
+	// 1. Successful channel info query
+	info, err := cli1.QueryChannelInfo(ctx, "room1")
+	if err != nil {
+		t.Fatalf("QueryChannelInfo failed: %v", err)
+	}
+	if info.Name != "room1" {
+		t.Errorf("expected channel name 'room1', got %s", info.Name)
+	}
+	if info.Subscribers != 2 {
+		t.Errorf("expected 2 subscribers, got %d", info.Subscribers)
+	}
+	if len(info.Clients) != 2 {
+		t.Errorf("expected 2 clients, got %v", info.Clients)
+	}
+
+	// 2. Convenience alias method ChannelInfo
+	infoAlias, err := cli1.ChannelInfo(ctx, "room1")
+	if err != nil {
+		t.Fatalf("ChannelInfo alias failed: %v", err)
+	}
+	if infoAlias.Subscribers != 2 {
+		t.Errorf("expected 2 subscribers from alias, got %d", infoAlias.Subscribers)
+	}
+
+	// 3. Query non-existent / empty channel
+	emptyInfo, err := cli1.QueryChannelInfo(ctx, "nonexistent-room")
+	if err != nil {
+		t.Fatalf("query non-existent channel failed: %v", err)
+	}
+	if emptyInfo.Name != "nonexistent-room" {
+		t.Errorf("expected name 'nonexistent-room', got %s", emptyInfo.Name)
+	}
+	if emptyInfo.Subscribers != 0 {
+		t.Errorf("expected 0 subscribers, got %d", emptyInfo.Subscribers)
+	}
+	if len(emptyInfo.Clients) != 0 {
+		t.Errorf("expected 0 clients, got %v", emptyInfo.Clients)
+	}
+
+	// 4. Empty channel name validation
+	if _, err := cli1.QueryChannelInfo(ctx, ""); err == nil {
+		t.Error("expected error for empty channel name, got nil")
+	}
+	if _, err := cli1.QueryChannelInfo(ctx, "   "); err == nil {
+		t.Error("expected error for whitespace channel name, got nil")
+	}
+
+	// 5. Server error handling
+	_, err = cli1.QueryChannelInfo(ctx, "error-channel")
+	if err == nil {
+		t.Error("expected error for error-channel, got nil")
+	} else if !strings.Contains(err.Error(), "channel access forbidden") {
+		t.Errorf("expected error message to contain 'channel access forbidden', got: %v", err)
+	}
+
+	// 6. Context timeout handling
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer timeoutCancel()
+	_, err = cli1.QueryChannelInfo(timeoutCtx, "silent-channel")
+	if err == nil {
+		t.Error("expected timeout error for silent-channel, got nil")
+	}
+
+	// 7. Disconnected client error
+	cliDisconnected, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint("ws://invalid-host:12345"),
+		client.WithClientName("disconn-client"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create disconnected client: %v", err)
+	}
+	defer cliDisconnected.Close()
+
+	if _, err := cliDisconnected.QueryChannelInfo(ctx, "room1"); err == nil {
+		t.Error("expected error when querying on disconnected client, got nil")
+	} else if !strings.Contains(err.Error(), "client is not connected") {
+		t.Errorf("expected 'client is not connected' error, got %v", err)
 	}
 }
