@@ -190,7 +190,7 @@ func TestTopLevelChannelInfoIntegration(t *testing.T) {
 					Subscribers: len(members),
 					Clients:     members,
 				}
-				respEvt, _ := wsbrokerclient.NewChannelInfoResponseEvent(clientName, info)
+				respEvt, _ := wsbrokerclient.NewChannelInfoResponseEvent(clientName, info, "wsbroker", evt.ID)
 				_ = wsjson.Write(r.Context(), conn, respEvt)
 			default:
 				if members, ok := groups[evt.Target]; ok {
@@ -276,5 +276,27 @@ func TestTopLevelChannelInfoIntegration(t *testing.T) {
 	errEvt, err := wsbrokerclient.NewChannelInfoErrorEvent("clientA", "failed")
 	if err != nil || errEvt.Type != wsbrokerclient.TypeChannelInfoError {
 		t.Fatalf("NewChannelInfoErrorEvent failed: %v", err)
+	}
+}
+
+func TestTopLevelReplyAndRefID(t *testing.T) {
+	orig, err := wsbrokerclient.NewMessageEvent("sender-client", "receiver-client", "original payload")
+	if err != nil {
+		t.Fatalf("failed to create original message: %v", err)
+	}
+	orig.ID = "original-id-123"
+
+	reply, err := wsbrokerclient.NewReplyEvent(orig, wsbrokerclient.TypeMessage, "reply payload")
+	if err != nil {
+		t.Fatalf("NewReplyEvent failed: %v", err)
+	}
+	if reply.RefID != "original-id-123" {
+		t.Errorf("expected RefID 'original-id-123', got %q", reply.RefID)
+	}
+	if reply.Target != "sender-client" {
+		t.Errorf("expected Target 'sender-client', got %q", reply.Target)
+	}
+	if reply.ID == "" || reply.ID == orig.ID {
+		t.Errorf("expected unique new event ID, got %q", reply.ID)
 	}
 }

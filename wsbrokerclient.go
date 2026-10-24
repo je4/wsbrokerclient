@@ -168,6 +168,7 @@ var (
 	NewChannelInfoQueryEvent    = event.NewChannelInfoQueryEvent
 	NewChannelInfoResponseEvent = event.NewChannelInfoResponseEvent
 	NewChannelInfoErrorEvent    = event.NewChannelInfoErrorEvent
+	NewReplyEvent               = event.NewReplyEvent
 	NewWSMessage                = event.NewWSMessage
 	GenerateEventID             = event.GenerateEventID
 	GenerateToken               = client.GenerateToken

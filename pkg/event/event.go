@@ -64,6 +64,7 @@ type DataInterface interface {
 // Event represents a standardized message envelope transmitted across WebSockets and REST APIs.
 type Event struct {
 	ID      string         `json:"id,omitempty"`
+	RefID   string         `json:"ref_id,omitempty"`
 	Type    EventType      `json:"type"`
 	Source  string         `json:"source"`
 	Target  string         `json:"target"`
@@ -77,16 +78,22 @@ func (e *Event) String() string {
 	if e == nil {
 		return "<nil event>"
 	}
-	if e.Channel != "" && e.ID != "" {
-		return fmt.Sprintf("%s [%s -> %s (channel: %s)] (%s)", e.Type, e.Source, e.Target, e.Channel, e.ID)
-	}
+	targetStr := e.Target
 	if e.Channel != "" {
-		return fmt.Sprintf("%s [%s -> %s (channel: %s)]", e.Type, e.Source, e.Target, e.Channel)
+		targetStr = fmt.Sprintf("%s (channel: %s)", e.Target, e.Channel)
+	}
+	base := fmt.Sprintf("%s [%s -> %s]", e.Type, e.Source, targetStr)
+
+	if e.ID != "" && e.RefID != "" {
+		return fmt.Sprintf("%s (id: %s, ref: %s)", base, e.ID, e.RefID)
 	}
 	if e.ID != "" {
-		return fmt.Sprintf("%s [%s -> %s] (%s)", e.Type, e.Source, e.Target, e.ID)
+		return fmt.Sprintf("%s (%s)", base, e.ID)
 	}
-	return fmt.Sprintf("%s [%s -> %s]", e.Type, e.Source, e.Target)
+	if e.RefID != "" {
+		return fmt.Sprintf("%s (ref: %s)", base, e.RefID)
+	}
+	return base
 }
 
 // GetID returns the event identifier.
@@ -101,6 +108,21 @@ func (e *Event) GetID() string {
 func (e *Event) SetID(id string) {
 	if e != nil {
 		e.ID = id
+	}
+}
+
+// GetRefID returns the reference event identifier.
+func (e *Event) GetRefID() string {
+	if e == nil {
+		return ""
+	}
+	return e.RefID
+}
+
+// SetRefID sets the reference event identifier.
+func (e *Event) SetRefID(id string) {
+	if e != nil {
+		e.RefID = id
 	}
 }
 
@@ -152,7 +174,7 @@ func (e *Event) GetToken() string {
 }
 
 // GetData unmarshals the JSON payload into either a primitive string, raw bytes (for NTP events), or generic JSON structure.
-func (e *Event) GetData() (interface{}, error) {
+func (e *Event) GetData() (any, error) {
 	if e == nil || len(e.Data) == 0 {
 		return nil, nil
 	}
@@ -218,6 +240,7 @@ func NewEvent(data DataInterface, target string, token string) (*Event, error) {
 		return nil, errors.Wrapf(err, "cannot marshal event data: %v", data)
 	}
 	return &Event{
+		ID:     GenerateEventID(),
 		Type:   data.Type(),
 		Target: target,
 		Token:  token,
@@ -232,6 +255,7 @@ func NewMessageEvent(source, target string, data any) (*Event, error) {
 		return nil, err
 	}
 	return &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeMessage,
 		Source: source,
 		Target: target,
@@ -253,6 +277,7 @@ func NewFileEvent(source, target string, file *FileMessage, token ...string) (*E
 		return nil, errors.Wrapf(err, "cannot marshal file event data: %v", file.Filename)
 	}
 	return &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeFile,
 		Source: source,
 		Target: target,
@@ -268,6 +293,7 @@ func NewAttachEvent(source, channel string) (*Event, error) {
 		return nil, errors.Wrapf(err, "cannot marshal attach channel: %s", channel)
 	}
 	return &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeAttach,
 		Source: source,
 		Target: channel,
@@ -282,6 +308,7 @@ func NewDetachEvent(source, channel string) (*Event, error) {
 		return nil, errors.Wrapf(err, "cannot marshal detach channel: %s", channel)
 	}
 	return &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeDetach,
 		Source: source,
 		Target: channel,
@@ -302,6 +329,7 @@ func NewPingEvent(source string, data ...any) (*Event, error) {
 		raw = jsontext.Value(`"ping"`)
 	}
 	return &Event{
+		ID:     GenerateEventID(),
 		Type:   TypePing,
 		Source: source,
 		Data:   raw,
@@ -309,6 +337,7 @@ func NewPingEvent(source string, data ...any) (*Event, error) {
 }
 
 // NewPongEvent creates a pong heartbeat response Event.
+// If an optional RefID string is passed as a subsequent argument, it is assigned to RefID.
 func NewPongEvent(source, target string, data ...any) (*Event, error) {
 	var raw jsontext.Value
 	if len(data) > 0 && data[0] != nil {
@@ -320,12 +349,19 @@ func NewPongEvent(source, target string, data ...any) (*Event, error) {
 	} else {
 		raw = jsontext.Value(`"pong"`)
 	}
-	return &Event{
+	evt := &Event{
+		ID:     GenerateEventID(),
 		Type:   TypePong,
 		Source: source,
 		Target: target,
 		Data:   raw,
-	}, nil
+	}
+	if len(data) > 1 {
+		if refStr, ok := data[1].(string); ok {
+			evt.RefID = refStr
+		}
+	}
+	return evt, nil
 }
 
 // NewNTPQueryEvent creates an Event of type TypeNTPQuery with raw NTP packet bytes.
@@ -335,6 +371,7 @@ func NewNTPQueryEvent(source string, data []byte) (*Event, error) {
 		return nil, errors.Wrapf(err, "cannot marshal NTP query data")
 	}
 	return &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeNTPQuery,
 		Source: source,
 		Data:   raw,
@@ -342,31 +379,43 @@ func NewNTPQueryEvent(source string, data []byte) (*Event, error) {
 }
 
 // NewNTPResponseEvent creates an Event of type TypeNTPResponse with raw NTP response bytes.
-func NewNTPResponseEvent(source, target string, data []byte) (*Event, error) {
+// An optional refID can be passed to correlate with the query event ID.
+func NewNTPResponseEvent(source, target string, data []byte, refID ...string) (*Event, error) {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot marshal NTP response data")
 	}
-	return &Event{
+	evt := &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeNTPResponse,
 		Source: source,
 		Target: target,
 		Data:   raw,
-	}, nil
+	}
+	if len(refID) > 0 {
+		evt.RefID = refID[0]
+	}
+	return evt, nil
 }
 
 // NewNTPErrorEvent creates an Event of type TypeNTPError with an error message string.
-func NewNTPErrorEvent(source, target, errMsg string) (*Event, error) {
+// An optional refID can be passed to correlate with the query event ID.
+func NewNTPErrorEvent(source, target, errMsg string, refID ...string) (*Event, error) {
 	raw, err := json.Marshal(errMsg)
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot marshal NTP error message: %s", errMsg)
 	}
-	return &Event{
+	evt := &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeNTPError,
 		Source: source,
 		Target: target,
 		Data:   raw,
-	}, nil
+	}
+	if len(refID) > 0 {
+		evt.RefID = refID[0]
+	}
+	return evt, nil
 }
 
 // NewChannelInfoQueryEvent creates an Event of type TypeChannelInfoQuery for querying channel metadata and members.
@@ -377,6 +426,7 @@ func NewChannelInfoQueryEvent(source, target string) (*Event, error) {
 		return nil, errors.Wrapf(err, "cannot marshal channel info query target: %s", target)
 	}
 	return &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeChannelInfoQuery,
 		Source: source,
 		Target: target,
@@ -385,6 +435,7 @@ func NewChannelInfoQueryEvent(source, target string) (*Event, error) {
 }
 
 // NewChannelInfoResponseEvent creates an Event of type TypeChannelInfoResponse containing ChannelInfo.
+// Optional source and refID strings can be provided.
 func NewChannelInfoResponseEvent(target string, info ChannelInfo, source ...string) (*Event, error) {
 	src := "wsbroker"
 	if len(source) > 0 && source[0] != "" {
@@ -394,15 +445,21 @@ func NewChannelInfoResponseEvent(target string, info ChannelInfo, source ...stri
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot marshal channel info: %v", info)
 	}
-	return &Event{
+	evt := &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeChannelInfoResponse,
 		Source: src,
 		Target: target,
 		Data:   raw,
-	}, nil
+	}
+	if len(source) > 1 {
+		evt.RefID = source[1]
+	}
+	return evt, nil
 }
 
 // NewChannelInfoErrorEvent creates an Event of type TypeChannelInfoError with an error message string.
+// Optional source and refID strings can be provided.
 func NewChannelInfoErrorEvent(target, errMsg string, source ...string) (*Event, error) {
 	src := "wsbroker"
 	if len(source) > 0 && source[0] != "" {
@@ -412,12 +469,61 @@ func NewChannelInfoErrorEvent(target, errMsg string, source ...string) (*Event, 
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot marshal channel info error message: %s", errMsg)
 	}
-	return &Event{
+	evt := &Event{
+		ID:     GenerateEventID(),
 		Type:   TypeChannelInfoError,
 		Source: src,
 		Target: target,
 		Data:   raw,
-	}, nil
+	}
+	if len(source) > 1 {
+		evt.RefID = source[1]
+	}
+	return evt, nil
+}
+
+// CreateReply creates a response Event correlating to the original event e.
+// The created event sets:
+// - ID: a newly generated unique identifier
+// - RefID: the ID of event e
+// - Target: e.Source (or e.Channel if e.Source is empty)
+// - Channel: e.Channel (if present)
+// - Token: e.Token (if present)
+// - Type: replyType
+// - Data: JSON-marshaled payload of data
+func (e *Event) CreateReply(replyType EventType, data any) (*Event, error) {
+	if e == nil {
+		return nil, errors.New("cannot create reply from nil event")
+	}
+	raw, err := marshalPayload(data)
+	if err != nil {
+		return nil, err
+	}
+	target := e.Source
+	if target == "" {
+		target = e.Channel
+	}
+	if target == "" {
+		target = e.Target
+	}
+	reply := &Event{
+		ID:      GenerateEventID(),
+		RefID:   e.ID,
+		Type:    replyType,
+		Target:  target,
+		Channel: e.Channel,
+		Token:   e.Token,
+		Data:    raw,
+	}
+	return reply, nil
+}
+
+// NewReplyEvent creates a response Event correlating to original with the given replyType and data.
+func NewReplyEvent(original *Event, replyType EventType, data any) (*Event, error) {
+	if original == nil {
+		return nil, errors.New("original event cannot be nil")
+	}
+	return original.CreateReply(replyType, data)
 }
 
 func marshalPayload(data any) (jsontext.Value, error) {
@@ -552,6 +658,7 @@ type WSMessage struct {
 	Timestamp time.Time `json:"timestamp"`
 	Direction string    `json:"direction"` // "in" (received) or "out" (sent)
 	ID        string    `json:"id,omitempty"`
+	RefID     string    `json:"refID,omitempty"`
 	Type      string    `json:"type"` // "message", "file", "ping", "pong", "attach", etc.
 	Source    string    `json:"source"`
 	Target    string    `json:"target,omitempty"`
@@ -570,6 +677,7 @@ func NewWSMessage(direction string, evt *Event) WSMessage {
 		Timestamp: time.Now().UTC(),
 		Direction: direction,
 		ID:        evt.ID,
+		RefID:     evt.RefID,
 		Type:      string(evt.Type),
 		Source:    evt.Source,
 		Target:    evt.Target,

@@ -117,9 +117,10 @@ func TestMessageStore(t *testing.T) {
 		t.Errorf("expected last message to be 'hello 7', got %s", msgs[len(msgs)-1].Content)
 	}
 
-	// Test IsSelf marking
+	// Test IsSelf marking and RefID
 	store.AddMessage(ChatMessage{
 		ID:      "self-1",
+		RefID:   "parent-msg-99",
 		Sender:  "alice",
 		Channel: "all",
 		Content: "my message",
@@ -128,6 +129,9 @@ func TestMessageStore(t *testing.T) {
 	lastMsg := msgs[len(msgs)-1]
 	if !lastMsg.IsSelf {
 		t.Errorf("expected message from alice to have IsSelf=true")
+	}
+	if lastMsg.RefID != "parent-msg-99" {
+		t.Errorf("expected RefID 'parent-msg-99', got %q", lastMsg.RefID)
 	}
 
 	// Test channel switching and adding

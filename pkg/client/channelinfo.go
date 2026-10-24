@@ -24,10 +24,22 @@ func (c *Client) QueryChannelInfo(ctx context.Context, channel string) (*event.C
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create channel info query event")
 	}
+	if evt.ID == "" {
+		evt.ID = event.GenerateEventID()
+	}
 
 	respCh := make(chan *event.Event, 1)
 
 	unsubResp := c.OnType(event.TypeChannelInfoResponse, func(e *event.Event) {
+		if e.RefID != "" {
+			if e.RefID == evt.ID {
+				select {
+				case respCh <- e:
+				default:
+				}
+			}
+			return
+		}
 		var info event.ChannelInfo
 		if err := e.UnmarshalData(&info); err == nil {
 			if info.Name == channel {
@@ -41,6 +53,15 @@ func (c *Client) QueryChannelInfo(ctx context.Context, channel string) (*event.C
 	defer unsubResp()
 
 	unsubErr := c.OnType(event.TypeChannelInfoError, func(e *event.Event) {
+		if e.RefID != "" {
+			if e.RefID == evt.ID {
+				select {
+				case respCh <- e:
+				default:
+				}
+			}
+			return
+		}
 		select {
 		case respCh <- e:
 		default:

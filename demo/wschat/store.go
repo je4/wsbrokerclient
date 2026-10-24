@@ -8,6 +8,7 @@ import (
 // ChatMessage represents a single message in a channel.
 type ChatMessage struct {
 	ID        string    `json:"id"`
+	RefID     string    `json:"ref_id,omitempty"`
 	Sender    string    `json:"sender"`
 	Channel   string    `json:"channel"`
 	Content   string    `json:"content"`

@@ -302,6 +302,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 
 	// 11. WSMessage & NewWSMessage
 	evt.ID = "evt-12345"
+	evt.RefID = "ref-0000"
 	evt.Channel = "channel-alerts"
 	wsMsg := event.NewWSMessage("in", evt)
 	if wsMsg.Direction != "in" {
@@ -309,6 +310,9 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	}
 	if wsMsg.ID != "evt-12345" {
 		t.Errorf("expected id 'evt-12345', got %s", wsMsg.ID)
+	}
+	if wsMsg.RefID != "ref-0000" {
+		t.Errorf("expected refID 'ref-0000', got %s", wsMsg.RefID)
 	}
 	if wsMsg.Channel != "channel-alerts" {
 		t.Errorf("expected channel 'channel-alerts', got %s", wsMsg.Channel)
@@ -414,4 +418,122 @@ func stringContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestEventRefIDAndReplyHelpers(t *testing.T) {
+	// 1. Getters and Setters for RefID
+	var nilEvt *event.Event
+	if nilEvt.GetRefID() != "" {
+		t.Errorf("expected empty RefID for nil event, got %q", nilEvt.GetRefID())
+	}
+	nilEvt.SetRefID("ref-123")
+
+	orig := &event.Event{
+		ID:      "evt-orig-123",
+		Type:    event.TypeMessage,
+		Source:  "client-alice",
+		Target:  "client-bob",
+		Channel: "chat-room",
+		Token:   "tok-secret",
+	}
+	orig.SetRefID("ref-parent-0")
+	if orig.GetRefID() != "ref-parent-0" {
+		t.Errorf("expected RefID 'ref-parent-0', got %q", orig.GetRefID())
+	}
+
+	// 2. String() with RefID formatting
+	evtOnlyRef := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", RefID: "ref1"}
+	if evtOnlyRef.String() != "message [s -> t] (ref: ref1)" {
+		t.Errorf("expected 'message [s -> t] (ref: ref1)', got %q", evtOnlyRef.String())
+	}
+
+	evtBothIDAndRef := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", ID: "id1", RefID: "ref1"}
+	if evtBothIDAndRef.String() != "message [s -> t] (id: id1, ref: ref1)" {
+		t.Errorf("expected 'message [s -> t] (id: id1, ref: ref1)', got %q", evtBothIDAndRef.String())
+	}
+
+	evtBothWithChan := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1", ID: "id1", RefID: "ref1"}
+	if evtBothWithChan.String() != "message [s -> t (channel: ch1)] (id: id1, ref: ref1)" {
+		t.Errorf("expected 'message [s -> t (channel: ch1)] (id: id1, ref: ref1)', got %q", evtBothWithChan.String())
+	}
+
+	// 3. WSMessage with RefID
+	wsMsg := event.NewWSMessage("in", evtBothIDAndRef)
+	if wsMsg.RefID != "ref1" {
+		t.Errorf("expected WSMessage RefID 'ref1', got %q", wsMsg.RefID)
+	}
+
+	// 4. CreateReply & NewReplyEvent
+	reply, err := orig.CreateReply(event.TypeMessage, "hello alice, this is bob")
+	if err != nil {
+		t.Fatalf("CreateReply failed: %v", err)
+	}
+	if reply.ID == "" || reply.ID == orig.ID {
+		t.Errorf("expected unique new ID for reply, got %q", reply.ID)
+	}
+	if reply.RefID != orig.ID {
+		t.Errorf("expected reply RefID %q, got %q", orig.ID, reply.RefID)
+	}
+	if reply.Target != orig.Source {
+		t.Errorf("expected reply target %q, got %q", orig.Source, reply.Target)
+	}
+	if reply.Channel != orig.Channel {
+		t.Errorf("expected reply channel %q, got %q", orig.Channel, reply.Channel)
+	}
+	if reply.Token != orig.Token {
+		t.Errorf("expected reply token %q, got %q", orig.Token, reply.Token)
+	}
+	replyData, err := reply.GetStringData()
+	if err != nil || replyData != "hello alice, this is bob" {
+		t.Errorf("unexpected reply data: %q (err: %v)", replyData, err)
+	}
+
+	replyViaFunc, err := event.NewReplyEvent(orig, event.TypePong, "pong-data")
+	if err != nil {
+		t.Fatalf("NewReplyEvent failed: %v", err)
+	}
+	if replyViaFunc.RefID != orig.ID || replyViaFunc.Target != orig.Source || replyViaFunc.Type != event.TypePong {
+		t.Errorf("unexpected replyViaFunc: %+v", replyViaFunc)
+	}
+
+	// 5. Response constructors with RefID
+	pong, err := event.NewPongEvent("server", "client-1", "pong-payload", "ref-ping-99")
+	if err != nil {
+		t.Fatalf("NewPongEvent failed: %v", err)
+	}
+	if pong.RefID != "ref-ping-99" {
+		t.Errorf("expected pong RefID 'ref-ping-99', got %q", pong.RefID)
+	}
+
+	ntpResp, err := event.NewNTPResponseEvent("server", "client-1", []byte{1, 2, 3}, "ref-ntp-1")
+	if err != nil {
+		t.Fatalf("NewNTPResponseEvent failed: %v", err)
+	}
+	if ntpResp.RefID != "ref-ntp-1" {
+		t.Errorf("expected ntpResp RefID 'ref-ntp-1', got %q", ntpResp.RefID)
+	}
+
+	ntpErr, err := event.NewNTPErrorEvent("server", "client-1", "timeout", "ref-ntp-2")
+	if err != nil {
+		t.Fatalf("NewNTPErrorEvent failed: %v", err)
+	}
+	if ntpErr.RefID != "ref-ntp-2" {
+		t.Errorf("expected ntpErr RefID 'ref-ntp-2', got %q", ntpErr.RefID)
+	}
+
+	ciResp, err := event.NewChannelInfoResponseEvent("client-1", event.ChannelInfo{Name: "alerts"}, "broker", "ref-ci-1")
+	if err != nil {
+		t.Fatalf("NewChannelInfoResponseEvent failed: %v", err)
+	}
+	if ciResp.RefID != "ref-ci-1" {
+		t.Errorf("expected ciResp RefID 'ref-ci-1', got %q", ciResp.RefID)
+	}
+
+	ciErr, err := event.NewChannelInfoErrorEvent("client-1", "err", "broker", "ref-ci-2")
+	if err != nil {
+		t.Fatalf("NewChannelInfoErrorEvent failed: %v", err)
+	}
+	if ciErr.RefID != "ref-ci-2" {
+		t.Errorf("expected ciErr RefID 'ref-ci-2', got %q", ciErr.RefID)
+	}
 }

@@ -199,6 +199,7 @@ func (c *ChatClient) handleIncomingEvent(evt *event.Event) {
 	}
 	c.store.AddMessage(ChatMessage{
 		ID:        msgID,
+		RefID:     evt.RefID,
 		Sender:    evt.Source,
 		Channel:   channel,
 		Content:   content,

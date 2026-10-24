@@ -126,6 +126,7 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		case event.TypePing:
 			pongEvt, _ := event.NewPongEvent("mockbroker", clientName, evt.Data)
+			pongEvt.RefID = evt.ID
 			_ = wsjson.Write(r.Context(), conn, pongEvt)
 		case event.TypeChannelInfoQuery:
 			var targetChannel string
@@ -134,7 +135,7 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				targetChannel = evt.Target
 			}
 			if targetChannel == "error-channel" {
-				errEvt, _ := event.NewChannelInfoErrorEvent(clientName, "channel access forbidden")
+				errEvt, _ := event.NewChannelInfoErrorEvent(clientName, "channel access forbidden", "mockbroker", evt.ID)
 				_ = wsjson.Write(r.Context(), conn, errEvt)
 			} else if targetChannel == "silent-channel" {
 				// Don't respond to trigger timeout in test
@@ -148,7 +149,7 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					Subscribers: len(members),
 					Clients:     members,
 				}
-				respEvt, _ := event.NewChannelInfoResponseEvent(clientName, info)
+				respEvt, _ := event.NewChannelInfoResponseEvent(clientName, info, "mockbroker", evt.ID)
 				_ = wsjson.Write(r.Context(), conn, respEvt)
 			}
 		case event.TypeMessage, event.TypeFile:
@@ -1134,5 +1135,137 @@ func TestClient_ChannelAndIDRouting(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for Subscription events channel")
+	}
+}
+
+func TestClient_ReplyAndRefIDCorrelation(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cliA, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("client-a"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client-a: %v", err)
+	}
+	defer cliA.Close()
+	if err := cliA.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect client-a: %v", err)
+	}
+
+	cliB, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("client-b"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client-b: %v", err)
+	}
+	defer cliB.Close()
+	if err := cliB.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect client-b: %v", err)
+	}
+
+	replyReceived := make(chan *event.Event, 1)
+	cliA.OnDirect(func(evt *event.Event) {
+		replyReceived <- evt
+	})
+
+	cliB.OnDirect(func(evt *event.Event) {
+		// Reply back to client-a
+		_ = cliB.Reply(ctx, evt, "response-to-alice")
+	})
+
+	reqEvt, _ := event.NewMessageEvent("client-a", "client-b", "hello-bob")
+	reqEvt.ID = "msg-12345"
+	if err := cliA.Send(ctx, reqEvt); err != nil {
+		t.Fatalf("failed to send initial message: %v", err)
+	}
+
+	select {
+	case reply := <-replyReceived:
+		if reply.RefID != "msg-12345" {
+			t.Errorf("expected reply RefID 'msg-12345', got %q", reply.RefID)
+		}
+		if reply.Source != "client-b" {
+			t.Errorf("expected reply Source 'client-b', got %q", reply.Source)
+		}
+		if reply.Target != "client-a" {
+			t.Errorf("expected reply Target 'client-a', got %q", reply.Target)
+		}
+		str, _ := reply.GetStringData()
+		if str != "response-to-alice" {
+			t.Errorf("expected 'response-to-alice', got %q", str)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for reply")
+	}
+}
+
+func TestClient_AutomaticPongRefID(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("pong-test-client"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli.Close()
+	if err := cli.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect client: %v", err)
+	}
+
+	// Wait briefly for connection registration on server
+	time.Sleep(100 * time.Millisecond)
+
+	mockServer.mu.Lock()
+	conn := mockServer.connections["pong-test-client"]
+	mockServer.mu.Unlock()
+	if conn == nil {
+		t.Fatal("expected mockServer connection for client")
+	}
+
+	// Send Ping from mock server to client with specific ID
+	pingEvt, _ := event.NewPingEvent("mockbroker", "ping-payload")
+	pingEvt.ID = "ping-id-98765"
+	pingEvt.Target = "pong-test-client"
+	if err := wsjson.Write(ctx, conn, pingEvt); err != nil {
+		t.Fatalf("failed to write ping: %v", err)
+	}
+
+	// Wait for Pong response from client
+	deadline := time.Now().Add(3 * time.Second)
+	var foundPong *event.Event
+	for time.Now().Before(deadline) {
+		mockServer.mu.Lock()
+		for _, e := range mockServer.receivedEvts {
+			if e.Type == event.TypePong && e.Source == "pong-test-client" {
+				foundPong = e
+				break
+			}
+		}
+		mockServer.mu.Unlock()
+		if foundPong != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if foundPong == nil {
+		t.Fatal("never received automatic pong response from client")
+	}
+	if foundPong.RefID != "ping-id-98765" {
+		t.Errorf("expected Pong RefID 'ping-id-98765', got %q", foundPong.RefID)
 	}
 }

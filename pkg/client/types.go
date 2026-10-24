@@ -110,6 +110,10 @@ type ClientInterface interface {
 	Broadcast(ctx context.Context, channel string, data any) error
 	// SendDirect sends a direct message to a named client.
 	SendDirect(ctx context.Context, targetClient string, data any) error
+	// Reply sends a correlated response message to originalEvt with the provided data payload.
+	Reply(ctx context.Context, originalEvt *event.Event, data any) error
+	// ReplyType sends a correlated response of a specific replyType to originalEvt with data payload.
+	ReplyType(ctx context.Context, originalEvt *event.Event, replyType event.EventType, data any) error
 	// Request sends an event and waits synchronously for a correlated response matching evt.Token.
 	Request(ctx context.Context, evt *event.Event) (*event.Event, error)
 

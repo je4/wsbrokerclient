@@ -40,6 +40,8 @@ func TestRESTClientEndpoints(t *testing.T) {
 			return
 		}
 		resp := restclient.PublishResponse{
+			ID:          req.ID,
+			RefID:       req.RefID,
 			Target:      req.Target,
 			Type:        req.Type,
 			Sent:        true,
@@ -50,7 +52,11 @@ func TestRESTClientEndpoints(t *testing.T) {
 	})
 
 	mux.HandleFunc("/api/v1/channel/alerts/publish", func(w http.ResponseWriter, r *http.Request) {
+		var req restclient.PublishRequest
+		_ = json.UnmarshalRead(r.Body, &req)
 		resp := restclient.PublishResponse{
+			ID:          req.ID,
+			RefID:       req.RefID,
 			Target:      "alerts",
 			Type:        "message",
 			Sent:        true,
@@ -118,12 +124,16 @@ func TestRESTClientEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create event: %v", err)
 	}
+	evt.RefID = "ref-original-msg-123"
 	pubResp, err := client.Publish(ctx, evt)
 	if err != nil {
 		t.Fatalf("Publish failed: %v", err)
 	}
 	if !pubResp.Sent || pubResp.Subscribers != 2 {
 		t.Errorf("unexpected publish response: %+v", pubResp)
+	}
+	if pubResp.ID != evt.ID || pubResp.RefID != "ref-original-msg-123" {
+		t.Errorf("expected ID %q and RefID %q, got %+v", evt.ID, "ref-original-msg-123", pubResp)
 	}
 
 	// 3. Publish to Channel
@@ -133,6 +143,9 @@ func TestRESTClientEndpoints(t *testing.T) {
 	}
 	if chResp.Subscribers != 5 {
 		t.Errorf("expected 5 subscribers, got %d", chResp.Subscribers)
+	}
+	if chResp.ID == "" {
+		t.Errorf("expected generated ID in channel publish response, got empty")
 	}
 
 	// 4. Get Channels

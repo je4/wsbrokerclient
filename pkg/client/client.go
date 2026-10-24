@@ -471,6 +471,7 @@ func (c *Client) handleIncomingEvent(evt *event.Event) {
 			pongTarget = "wsbroker"
 		}
 		pongEvt, _ := event.NewPongEvent(c.clientName, pongTarget, evt.Data)
+		pongEvt.RefID = evt.ID
 		go func() {
 			pCtx, pCancel := context.WithTimeout(c.ctx, c.config.WriteTimeout)
 			defer pCancel()
@@ -479,7 +480,7 @@ func (c *Client) handleIncomingEvent(evt *event.Event) {
 		return
 	}
 
-	// Dispatch to correlation token waiters
+	// Dispatch to correlation token / RefID waiters
 	if evt.Token != "" {
 		c.waitersMu.RLock()
 		ch, found := c.waiters[evt.Token]
@@ -489,6 +490,18 @@ func (c *Client) handleIncomingEvent(evt *event.Event) {
 			case ch <- evt:
 			default:
 				c.logger.Warn().Str("token", evt.Token).Msg("waiter channel blocked or full")
+			}
+		}
+	}
+	if evt.RefID != "" {
+		c.waitersMu.RLock()
+		ch, found := c.waiters[evt.RefID]
+		c.waitersMu.RUnlock()
+		if found {
+			select {
+			case ch <- evt:
+			default:
+				c.logger.Warn().Str("refID", evt.RefID).Msg("waiter channel blocked or full")
 			}
 		}
 	}
@@ -704,6 +717,9 @@ func (c *Client) Send(ctx context.Context, evt *event.Event) error {
 	if evt == nil {
 		return errors.New("event is nil")
 	}
+	if evt.ID == "" {
+		evt.ID = event.GenerateEventID()
+	}
 	if evt.Source == "" {
 		evt.Source = c.clientName
 	}
@@ -736,6 +752,24 @@ func (c *Client) SendMessage(ctx context.Context, target string, data any) error
 	return c.Send(ctx, evt)
 }
 
+// Reply sends a correlated TypeMessage response event to originalEvt carrying data payload.
+func (c *Client) Reply(ctx context.Context, originalEvt *event.Event, data any) error {
+	return c.ReplyType(ctx, originalEvt, event.TypeMessage, data)
+}
+
+// ReplyType sends a correlated response event of the specified replyType to originalEvt.
+func (c *Client) ReplyType(ctx context.Context, originalEvt *event.Event, replyType event.EventType, data any) error {
+	if originalEvt == nil {
+		return errors.New("cannot reply to nil event")
+	}
+	replyEvt, err := originalEvt.CreateReply(replyType, data)
+	if err != nil {
+		return err
+	}
+	replyEvt.Source = c.clientName
+	return c.Send(ctx, replyEvt)
+}
+
 // Broadcast sends a broadcast payload to a channel.
 func (c *Client) Broadcast(ctx context.Context, channel string, data any) error {
 	return c.SendMessage(ctx, channel, data)
@@ -755,7 +789,8 @@ func GenerateToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// Request sends an event envelope and waits synchronously for a correlated response matching evt.Token.
+// Request sends an event envelope and waits synchronously for a correlated response matching evt.Token or evt.RefID.
+// If evt.ID is empty, a unique random ID is automatically generated.
 // If evt.Token is empty, a unique random token is automatically generated.
 // If evt.Source is empty, it is set to the client's configured name.
 func (c *Client) Request(ctx context.Context, evt *event.Event) (*event.Event, error) {
@@ -764,6 +799,9 @@ func (c *Client) Request(ctx context.Context, evt *event.Event) (*event.Event, e
 	}
 	if evt == nil {
 		return nil, errors.New("cannot send nil request event")
+	}
+	if evt.ID == "" {
+		evt.ID = event.GenerateEventID()
 	}
 	if evt.Token == "" {
 		tok, err := GenerateToken()
@@ -778,6 +816,11 @@ func (c *Client) Request(ctx context.Context, evt *event.Event) (*event.Event, e
 
 	ch := c.registerWaiter(evt.Token)
 	defer c.unregisterWaiter(evt.Token)
+
+	if evt.ID != "" {
+		c.registerWaiterChannel(evt.ID, ch)
+		defer c.unregisterWaiter(evt.ID)
+	}
 
 	if err := c.Send(ctx, evt); err != nil {
 		return nil, errors.Wrap(err, "failed to send request event")
@@ -802,6 +845,12 @@ func (c *Client) registerWaiter(token string) chan *event.Event {
 	c.waiters[token] = ch
 	c.waitersMu.Unlock()
 	return ch
+}
+
+func (c *Client) registerWaiterChannel(key string, ch chan *event.Event) {
+	c.waitersMu.Lock()
+	c.waiters[key] = ch
+	c.waitersMu.Unlock()
 }
 
 func (c *Client) unregisterWaiter(token string) {
@@ -879,10 +928,22 @@ func (c *Client) QueryNTP(ctx context.Context, data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create NTP query event")
 	}
+	if evt.ID == "" {
+		evt.ID = event.GenerateEventID()
+	}
 
 	respCh := make(chan *event.Event, 1)
 
 	unsubResp := c.OnType(event.TypeNTPResponse, func(e *event.Event) {
+		if e.RefID != "" {
+			if e.RefID == evt.ID {
+				select {
+				case respCh <- e:
+				default:
+				}
+			}
+			return
+		}
 		select {
 		case respCh <- e:
 		default:
@@ -891,6 +952,15 @@ func (c *Client) QueryNTP(ctx context.Context, data []byte) ([]byte, error) {
 	defer unsubResp()
 
 	unsubErr := c.OnType(event.TypeNTPError, func(e *event.Event) {
+		if e.RefID != "" {
+			if e.RefID == evt.ID {
+				select {
+				case respCh <- e:
+				default:
+				}
+			}
+			return
+		}
 		select {
 		case respCh <- e:
 		default:

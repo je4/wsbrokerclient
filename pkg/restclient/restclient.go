@@ -180,7 +180,13 @@ func (c *RESTClient) Publish(ctx context.Context, evt *event.Event) (*PublishRes
 		return nil, errors.New("event is nil")
 	}
 
+	if evt.ID == "" {
+		evt.ID = event.GenerateEventID()
+	}
+
 	req := PublishRequest{
+		ID:     evt.ID,
+		RefID:  evt.RefID,
 		Source: evt.Source,
 		Target: evt.Target,
 		Type:   string(evt.Type),
@@ -208,6 +214,7 @@ func (c *RESTClient) PublishToChannel(ctx context.Context, channel, source strin
 	}
 
 	req := PublishRequest{
+		ID:     event.GenerateEventID(),
 		Source: source,
 		Target: channel,
 		Type:   string(event.TypeMessage),
