@@ -26,7 +26,7 @@ func GenerateEventID() string {
 // Event represents a standardized message envelope transmitted across WebSockets and REST APIs.
 type Event struct {
 	ID      string         `json:"id,omitempty"`
-	RefID   string         `json:"ref_id,omitempty"`
+	RefID   string         `json:"refId,omitempty"`
 	Type    EventType      `json:"type"`
 	Source  string         `json:"source"`
 	Target  string         `json:"target"`
