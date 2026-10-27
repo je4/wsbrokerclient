@@ -987,17 +987,15 @@ func TestClient_RequestReply(t *testing.T) {
 		t.Fatalf("failed to connect responder: %v", err)
 	}
 
-	// Responder listens for direct messages and responds
+	// Responder listens for direct messages and responds using Reply
 	cli2.OnDirect(func(evt *event.Event) {
 		var reqMsg string
 		_ = evt.UnmarshalData(&reqMsg)
 
-		respEvt, _ := event.NewMessageEvent("responder", evt.Source, fmt.Sprintf("echo:%s", reqMsg))
-		respEvt.Token = evt.Token
-		_ = cli2.Send(context.Background(), respEvt)
+		_ = cli2.Reply(context.Background(), evt, fmt.Sprintf("echo:%s", reqMsg))
 	})
 
-	// 1. Successful request with auto-generated token
+	// 1. Successful request with auto-generated ID
 	reqEvt, err := event.NewMessageEvent("", "responder", "hello-world")
 	if err != nil {
 		t.Fatalf("failed to create request event: %v", err)
@@ -1010,8 +1008,8 @@ func TestClient_RequestReply(t *testing.T) {
 	if resp == nil {
 		t.Fatal("expected non-nil response")
 	}
-	if resp.Token == "" {
-		t.Error("expected non-empty correlation token in response")
+	if resp.RefID == "" || resp.RefID != reqEvt.ID {
+		t.Errorf("expected RefID == %s, got %s", reqEvt.ID, resp.RefID)
 	}
 	var respMsg string
 	if err := resp.UnmarshalData(&respMsg); err != nil {
@@ -1050,6 +1048,269 @@ func TestClient_RequestReply(t *testing.T) {
 	}
 	if len(tok) != 32 { // 16 bytes hex-encoded = 32 chars
 		t.Errorf("expected 32 character hex token, got %d chars: %s", len(tok), tok)
+	}
+}
+
+func TestClient_RequestN(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli1, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("requester2"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create requester2: %v", err)
+	}
+	defer cli1.Close()
+	if err := cli1.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect requester2: %v", err)
+	}
+
+	cli2, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("responder2"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create responder2: %v", err)
+	}
+	defer cli2.Close()
+	if err := cli2.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect responder2: %v", err)
+	}
+
+	// Responder sends multiple responses for any direct event
+	cli2.OnDirect(func(evt *event.Event) {
+		var reqMsg string
+		_ = evt.UnmarshalData(&reqMsg)
+
+		for i := 1; i <= 3; i++ {
+			respEvt, _ := event.NewMessageEvent("responder2", evt.Source, fmt.Sprintf("%s-part-%d", reqMsg, i))
+			respEvt.RefID = evt.ID
+			_ = cli2.Send(context.Background(), respEvt)
+		}
+	})
+
+	// 1. Successful RequestN collecting 3 responses
+	reqEvt, err := event.NewMessageEvent("", "responder2", "multi-part")
+	if err != nil {
+		t.Fatalf("failed to create request event: %v", err)
+	}
+	originalID := "some-prefilled-id"
+	reqEvt.ID = originalID
+
+	respCh := make(chan *event.Event, 5)
+	err = cli1.RequestN(ctx, reqEvt, 3, respCh)
+	if err != nil {
+		t.Fatalf("RequestN failed: %v", err)
+	}
+
+	// Verify ID was preserved
+	if reqEvt.ID != originalID {
+		t.Errorf("expected ID '%s', got '%s'", originalID, reqEvt.ID)
+	}
+
+	if len(respCh) != 3 {
+		t.Fatalf("expected 3 responses in channel, got %d", len(respCh))
+	}
+
+	for i := 1; i <= 3; i++ {
+		resp := <-respCh
+		if resp.RefID != reqEvt.ID {
+			t.Errorf("expected RefID == %s, got %s", reqEvt.ID, resp.RefID)
+		}
+		var msg string
+		_ = resp.UnmarshalData(&msg)
+		expected := fmt.Sprintf("multi-part-part-%d", i)
+		if msg != expected {
+			t.Errorf("expected msg '%s', got '%s'", expected, msg)
+		}
+	}
+
+	// 2. Timeout when expecting more responses than sent
+	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer timeoutCancel()
+
+	timeoutReq, _ := event.NewMessageEvent("", "responder2", "expect-too-many")
+	timeoutCh := make(chan *event.Event, 10)
+	err = cli1.RequestN(timeoutCtx, timeoutReq, 5, timeoutCh)
+	if err == nil {
+		t.Error("expected timeout error when expecting 5 results from responder that sends 3, got nil")
+	}
+	// Verify that the 3 responses sent before timeout were still pushed into timeoutCh
+	if len(timeoutCh) != 3 {
+		t.Errorf("expected 3 responses pushed before timeout, got %d", len(timeoutCh))
+	}
+
+	// 3. Validation errors
+	if err := cli1.RequestN(ctx, nil, 1, respCh); err == nil {
+		t.Error("expected error for nil event, got nil")
+	}
+	if err := cli1.RequestN(ctx, reqEvt, 1, nil); err == nil {
+		t.Error("expected error for nil channel, got nil")
+	}
+}
+
+func TestClient_Request1(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli1, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("requester1"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create requester1: %v", err)
+	}
+	defer cli1.Close()
+	if err := cli1.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect requester1: %v", err)
+	}
+
+	cli2, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("responder1"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create responder1: %v", err)
+	}
+	defer cli2.Close()
+	if err := cli2.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect responder1: %v", err)
+	}
+
+	cli2.OnDirect(func(evt *event.Event) {
+		var reqMsg string
+		_ = evt.UnmarshalData(&reqMsg)
+
+		respEvt, _ := event.NewMessageEvent("responder1", evt.Source, fmt.Sprintf("echo:%s", reqMsg))
+		respEvt.RefID = evt.ID
+		_ = cli2.Send(context.Background(), respEvt)
+	})
+
+	// 1. Successful Request1
+	reqEvt, err := event.NewMessageEvent("", "responder1", "hello-req1")
+	if err != nil {
+		t.Fatalf("failed to create request event: %v", err)
+	}
+	originalID := "some-old-id"
+	reqEvt.ID = originalID
+
+	resp, err := cli1.Request1(ctx, reqEvt)
+	if err != nil {
+		t.Fatalf("Request1 failed: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if reqEvt.ID != originalID {
+		t.Errorf("expected preserved ID '%s', got '%s'", originalID, reqEvt.ID)
+	}
+	if resp.RefID != reqEvt.ID {
+		t.Errorf("expected RefID == %s, got %s", reqEvt.ID, resp.RefID)
+	}
+	var respMsg string
+	if err := resp.UnmarshalData(&respMsg); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if respMsg != "echo:hello-req1" {
+		t.Errorf("expected 'echo:hello-req1', got '%s'", respMsg)
+	}
+
+	// 2. Timeout
+	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer timeoutCancel()
+
+	timeoutReq, _ := event.NewMessageEvent("", "non-existent", "timeout-test")
+	_, err = cli1.Request1(timeoutCtx, timeoutReq)
+	if err == nil {
+		t.Error("expected timeout error, got nil")
+	}
+
+	// 3. Validation error (nil event)
+	if _, err := cli1.Request1(ctx, nil); err == nil {
+		t.Error("expected error for nil event, got nil")
+	}
+}
+
+func TestClient_Request0(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli1, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("requester0"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create requester0: %v", err)
+	}
+	defer cli1.Close()
+	if err := cli1.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect requester0: %v", err)
+	}
+
+	cli2, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("responder0"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create responder0: %v", err)
+	}
+	defer cli2.Close()
+	if err := cli2.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect responder0: %v", err)
+	}
+
+	received := make(chan *event.Event, 1)
+	cli2.OnDirect(func(evt *event.Event) {
+		received <- evt
+	})
+
+	// 1. Successful Request0
+	reqEvt, err := event.NewMessageEvent("", "responder0", "hello-req0")
+	if err != nil {
+		t.Fatalf("failed to create request event: %v", err)
+	}
+	originalID := "some-old-id"
+	reqEvt.ID = originalID
+
+	if err := cli1.Request0(ctx, reqEvt); err != nil {
+		t.Fatalf("Request0 failed: %v", err)
+	}
+
+	if reqEvt.ID != originalID {
+		t.Errorf("expected preserved ID '%s', got '%s'", originalID, reqEvt.ID)
+	}
+
+	select {
+	case evt := <-received:
+		if evt.ID != reqEvt.ID {
+			t.Errorf("expected received event ID %s, got %s", reqEvt.ID, evt.ID)
+		}
+		var msg string
+		_ = evt.UnmarshalData(&msg)
+		if msg != "hello-req0" {
+			t.Errorf("expected msg 'hello-req0', got '%s'", msg)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for event on responder")
+	}
+
+	// 2. Validation error (nil event)
+	if err := cli1.Request0(ctx, nil); err == nil {
+		t.Error("expected error for nil event, got nil")
 	}
 }
 

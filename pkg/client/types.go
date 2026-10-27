@@ -116,6 +116,12 @@ type ClientInterface interface {
 	ReplyType(ctx context.Context, originalEvt *event.Event, replyType event.EventType, data any) error
 	// Request sends an event and waits synchronously for a correlated response matching evt.Token.
 	Request(ctx context.Context, evt *event.Event) (*event.Event, error)
+	// Request0 sends an event with a newly generated ID without waiting for any response.
+	Request0(ctx context.Context, evt *event.Event) error
+	// Request1 sends an event and waits synchronously for a single correlated response using RequestN.
+	Request1(ctx context.Context, evt *event.Event) (*event.Event, error)
+	// RequestN sends an event and streams up to numResults correlated responses into ch until done or ctx expires.
+	RequestN(ctx context.Context, evt *event.Event, numResults int, ch chan *event.Event) error
 
 	// Attach subscribes the client to one or more channels dynamically.
 	Attach(ctx context.Context, channels ...string) error

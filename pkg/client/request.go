@@ -18,56 +18,6 @@ func GenerateToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// Request sends an event envelope and waits synchronously for a correlated response matching evt.Token or evt.RefID.
-// If evt.ID is empty, a unique random ID is automatically generated.
-// If evt.Token is empty, a unique random token is automatically generated.
-// If evt.Source is empty, it is set to the client's configured name.
-func (c *Client) Request(ctx context.Context, evt *event.Event) (*event.Event, error) {
-	if c.closed.Load() {
-		return nil, errors.New("client is closed")
-	}
-	if evt == nil {
-		return nil, errors.New("cannot send nil request event")
-	}
-	if evt.ID == "" {
-		evt.ID = event.GenerateEventID()
-	}
-	if evt.Token == "" {
-		tok, err := GenerateToken()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to generate correlation token")
-		}
-		evt.Token = tok
-	}
-	if evt.Source == "" {
-		evt.Source = c.clientName
-	}
-
-	ch := c.registerWaiter(evt.Token)
-	defer c.unregisterWaiter(evt.Token)
-
-	if evt.ID != "" {
-		c.registerWaiterChannel(evt.ID, ch)
-		defer c.unregisterWaiter(evt.ID)
-	}
-
-	if err := c.Send(ctx, evt); err != nil {
-		return nil, errors.Wrap(err, "failed to send request event")
-	}
-
-	select {
-	case <-ctx.Done():
-		return nil, errors.Wrap(ctx.Err(), "request canceled or timed out waiting for response")
-	case <-c.ctx.Done():
-		return nil, errors.New("client closed while waiting for response")
-	case resp, ok := <-ch:
-		if !ok || resp == nil {
-			return nil, errors.New("response channel closed")
-		}
-		return resp, nil
-	}
-}
-
 func (c *Client) registerWaiter(token string) chan *event.Event {
 	ch := make(chan *event.Event, 1)
 	c.waitersMu.Lock()
@@ -86,4 +36,84 @@ func (c *Client) unregisterWaiter(token string) {
 	c.waitersMu.Lock()
 	delete(c.waiters, token)
 	c.waitersMu.Unlock()
+}
+
+// Request0 sends an event envelope without waiting for any response.
+func (c *Client) Request0(ctx context.Context, evt *event.Event) error {
+	return c.RequestN(ctx, evt, 0, nil)
+}
+
+// Request sends an event envelope and waits synchronously for a single correlated response using RequestN.
+func (c *Client) Request(ctx context.Context, evt *event.Event) (*event.Event, error) {
+	ch := make(chan *event.Event, 1)
+	if err := c.RequestN(ctx, evt, 1, ch); err != nil {
+		return nil, errors.Wrap(err, "failed to send request")
+	}
+	return <-ch, nil
+}
+
+// Request1 sends an event envelope and waits synchronously for a single correlated response (alias for Request).
+func (c *Client) Request1(ctx context.Context, evt *event.Event) (*event.Event, error) {
+	return c.Request(ctx, evt)
+}
+
+// RequestN sends an event envelope with an event ID, waits to collect up to numResults
+// correlated responses (matching RefID equal to evt.ID or matching Token) or until ctx cancels/times out,
+// and streams the received response events into ch.
+func (c *Client) RequestN(ctx context.Context, evt *event.Event, numResults int, ch chan *event.Event) error {
+	if c.closed.Load() {
+		return errors.New("client is closed")
+	}
+	if evt == nil {
+		return errors.New("cannot send nil request event")
+	}
+	if ch == nil && numResults > 0 {
+		return errors.New("channel cannot be nil")
+	}
+
+	if evt.ID == "" {
+		evt.ID = event.GenerateEventID()
+	}
+
+	if evt.Source == "" {
+		evt.Source = c.clientName
+	}
+
+	if numResults <= 0 {
+		return c.Send(ctx, evt)
+	}
+
+	waiterCh := make(chan *event.Event, numResults)
+	c.registerWaiterChannel(evt.ID, waiterCh)
+	defer c.unregisterWaiter(evt.ID)
+	if evt.Token != "" {
+		c.registerWaiterChannel(evt.Token, waiterCh)
+		defer c.unregisterWaiter(evt.Token)
+	}
+
+	if err := c.Send(ctx, evt); err != nil {
+		return errors.Wrap(err, "failed to send request event")
+	}
+
+	for range numResults {
+		select {
+		case <-ctx.Done():
+			return errors.Wrap(ctx.Err(), "request canceled or timed out waiting for responses")
+		case <-c.ctx.Done():
+			return errors.New("client closed while waiting for responses")
+		case resp, ok := <-waiterCh:
+			if !ok || resp == nil {
+				return errors.New("response channel closed")
+			}
+			select {
+			case ch <- resp:
+			case <-ctx.Done():
+				return errors.Wrap(ctx.Err(), "request canceled or timed out delivering response")
+			case <-c.ctx.Done():
+				return errors.New("client closed while delivering response")
+			}
+		}
+	}
+
+	return nil
 }

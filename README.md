@@ -26,6 +26,8 @@
   - [Event Handlers & Callbacks](#event-handlers--callbacks)
   - [Direct Client-to-Client Messaging](#direct-client-to-client-messaging)
   - [Publishing & Broadcasting](#publishing--broadcasting)
+  - [Request-Response & RPC Patterns](#request-response--rpc-patterns)
+  - [NTP & Clock Synchronization](#ntp--clock-synchronization)
   - [Heartbeat & Ping/Pong Handling](#heartbeat--pingpong-handling)
 - [REST Management API Client](#rest-management-api-client)
 - [Demo Application (`wschat`)](#demo-application-wschat)
@@ -41,6 +43,8 @@
 - **Intelligent Auto-Reconnection:** Built-in connection supervisor with jittered exponential backoff and transparent channel resubscription upon network restore.
 - **Dynamic Pub/Sub & Stream Subscriptions:** Join/leave channels dynamically, consume channel events via Go channels (`Subscription.Events()`), or register target/type-specific handlers.
 - **Direct Point-to-Point Messaging:** Send targeted events directly to specific connected clients.
+- **Request-Response & RPC Patterns:** Synchronous 1:1 RPC (`Request`/`Request1`), fire-and-forget (`Request0`), and multi-response streaming (`RequestN`) with correlation via `RefID` and correlation tokens.
+- **NTP Time Synchronization:** Accurate clock offset measurement and synchronized time over WebSocket connections.
 - **Automatic Heartbeat Management:** Responds to server pings with standard pong envelopes and sends periodic client-side keepalive pings.
 - **RESTful Client Included:** Full HTTP client implementation for WSBroker REST management endpoints (`/api/v1/publish`, `/api/v1/channels`, `/api/v1/clients`, etc.).
 
@@ -376,6 +380,93 @@ err := cli.Broadcast(ctx, "events", map[string]any{
 	"user_id": 1042,
 })
 ```
+
+### Request-Response & RPC Patterns
+
+WSBrokerClient provides built-in correlation mechanisms for synchronous and streaming Request-Response workflows over asynchronous WebSocket connections. Responses are correlated either by matching the response's `RefID` to the request's `evt.ID`, or by matching `Token`.
+
+#### API Methods Overview
+
+| Method | Behavior | Description |
+| :--- | :--- | :--- |
+| `cli.Request(ctx, evt)` / `cli.Request1(ctx, evt)` | Synchronous (1:1) | Generates `evt.ID` (if missing), sends the event, and blocks until a single correlated response arrives or `ctx` expires. |
+| `cli.Request0(ctx, evt)` | Fire-and-Forget | Generates `evt.ID` (if missing) and sends the event immediately without registering waiters or waiting for responses. |
+| `cli.RequestN(ctx, evt, numResults, ch)` | Multi-Response Streaming | Sends `evt`, streams up to `numResults` correlated incoming responses into `ch`, and returns when all responses are collected or `ctx` expires. |
+| `cli.Reply(ctx, reqEvt, data)` | Responder Helper | Creates a correlated reply event (`RefID = reqEvt.ID`, preserving `reqEvt.Token`) and sends it back to `reqEvt.Source`. |
+| `cli.ReplyType(ctx, reqEvt, type, data)` | Responder Helper | Same as `Reply()`, but allows specifying a custom `EventType`. |
+
+#### Usage Examples
+
+```go
+// --- Requester side ---
+
+// 1. Single synchronous Request-Response (Request / Request1)
+reqEvt, _ := wsbrokerclient.NewMessageEvent("", "worker-01", "get_status")
+respEvt, err := cli.Request(ctx, reqEvt)
+if err != nil {
+	log.Fatalf("Request failed: %v", err)
+}
+var status string
+_ = respEvt.UnmarshalData(&status)
+fmt.Printf("Received response: %s\n", status)
+
+// 2. Fire-and-forget Request (Request0)
+// Sends with guaranteed Event ID without blocking for responses
+_ = cli.Request0(ctx, reqEvt)
+
+// 3. Multi-Response Streaming (RequestN)
+// Query multiple workers across a channel and collect up to N correlated responses
+broadcastReq, _ := wsbrokerclient.NewMessageEvent("", "cluster-workers", "ping_all")
+respCh := make(chan *wsbrokerclient.Event, 5)
+
+// RequestN streams up to 3 responses into respCh or returns on ctx timeout
+go func() {
+	err := cli.RequestN(ctx, broadcastReq, 3, respCh)
+	if err != nil {
+		log.Printf("RequestN finished: %v", err)
+	}
+}()
+
+// 4. Replying to a Request
+cli.OnDirect(func(evt *wsbrokerclient.Event) {
+	var query string
+	_ = evt.UnmarshalData(&query)
+
+	// Reply automatically preserves RefID = evt.ID and correlation tokens
+	_ = cli.Reply(ctx, evt, "result-for-"+query)
+})
+```
+
+### NTP & Clock Synchronization
+
+WSBrokerClient provides integrated NTP time synchronization over the WebSocket connection, allowing clients to measure latency and clock offset against the broker without needing direct UDP access:
+
+```go
+// 1. Measure clock offset against the broker's NTP server
+offset, err := cli.SyncNTP(ctx)
+if err != nil {
+	log.Fatalf("NTP sync failed: %v", err)
+}
+fmt.Printf("Measured clock offset: %v\n", offset)
+
+// 2. Obtain NTP-synchronized time
+synchronizedTime := cli.Time()
+fmt.Printf("NTP-synchronized local time: %v\n", synchronizedTime)
+
+// 3. Query detailed NTP response
+ntpResp, err := cli.NTP(ctx)
+if err == nil {
+	fmt.Printf("Stratum: %d, Precision: %v, RTT: %v\n", ntpResp.Stratum, ntpResp.Precision, ntpResp.RTT)
+}
+```
+
+### Heartbeat & Ping/Pong Handling
+
+WSBrokerClient automatically maintains connection health through periodic keepalive frames and automatic heartbeat replies:
+
+- **Automatic Server Ping Response:** The client automatically intercepts server `TypePing` events and responds immediately with a correlated `TypePong` envelope (`RefID = ping.ID`).
+- **Periodic Client Keepalive:** Configured via `Config.PingInterval` (defaults to 20 seconds).
+- **Manual Ping:** Use `cli.Ping(ctx)` to explicitly verify round-trip connectivity to the server.
 
 ---
 
