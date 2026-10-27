@@ -86,10 +86,6 @@ func (c *Client) RequestN(ctx context.Context, evt *event.Event, numResults int,
 	waiterCh := make(chan *event.Event, numResults)
 	c.registerWaiterChannel(evt.ID, waiterCh)
 	defer c.unregisterWaiter(evt.ID)
-	if evt.Token != "" {
-		c.registerWaiterChannel(evt.Token, waiterCh)
-		defer c.unregisterWaiter(evt.Token)
-	}
 
 	if err := c.Send(ctx, evt); err != nil {
 		return errors.Wrap(err, "failed to send request event")
