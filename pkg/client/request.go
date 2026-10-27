@@ -58,7 +58,7 @@ func (c *Client) Request1(ctx context.Context, evt *event.Event) (*event.Event, 
 }
 
 // RequestN sends an event envelope with an event ID, waits to collect up to numResults
-// correlated responses (matching RefID equal to evt.ID or matching Token) or until ctx cancels/times out,
+// correlated responses (matching RefID equal to evt.ID) or until ctx cancels/times out,
 // and streams the received response events into ch.
 func (c *Client) RequestN(ctx context.Context, evt *event.Event, numResults int, ch chan *event.Event) error {
 	if c.closed.Load() {
