@@ -146,6 +146,7 @@ var (
 	WithAutoReconnect     = client.WithAutoReconnect
 	WithReconnectStrategy = client.WithReconnectStrategy
 	WithPingInterval      = client.WithPingInterval
+	WithReadLimit         = client.WithReadLimit
 	WithConnectTimeout    = client.WithConnectTimeout
 	WithWriteTimeout      = client.WithWriteTimeout
 	WithLogger            = client.WithLogger
