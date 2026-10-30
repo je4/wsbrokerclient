@@ -23,20 +23,29 @@ func GenerateEventID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Event represents a standardized message envelope transmitted across WebSockets and REST APIs.
-type Event struct {
-	ID      string         `json:"id,omitempty"`
-	RefID   string         `json:"refId,omitempty"`
-	Type    EventType      `json:"type"`
-	Source  string         `json:"source"`
-	Target  string         `json:"target"`
-	Channel string         `json:"channel,omitempty"`
-	Token   string         `json:"token,omitempty"`
-	Data    jsontext.Value `json:"data"`
+// BaseEvent encapsulates all transport, routing, and correlation metadata.
+type BaseEvent struct {
+	ID        string    `json:"id,omitempty"`
+	RefID     string    `json:"refId,omitempty"`
+	Type      EventType `json:"type"`
+	Source    string    `json:"source"`
+	Target    string    `json:"target,omitempty"`
+	Channel   string    `json:"channel,omitempty"`
+	Token     string    `json:"token,omitempty"`
+	Timestamp time.Time `json:"timestamp,omitempty"`
 }
 
-// String returns a human-readable summary of the Event.
-func (e *Event) String() string {
+// Event couples the transport metadata with a strongly-typed payload.
+type Event[T any] struct {
+	BaseEvent
+	Data T `json:"data"`
+}
+
+// RawEvent represents an event envelope with unparsed JSON payload.
+type RawEvent = Event[jsontext.Value]
+
+// String returns a human-readable summary of the BaseEvent.
+func (e *BaseEvent) String() string {
 	if e == nil {
 		return "<nil event>"
 	}
@@ -59,7 +68,7 @@ func (e *Event) String() string {
 }
 
 // GetID returns the event identifier.
-func (e *Event) GetID() string {
+func (e *BaseEvent) GetID() string {
 	if e == nil {
 		return ""
 	}
@@ -67,14 +76,14 @@ func (e *Event) GetID() string {
 }
 
 // SetID sets the event identifier.
-func (e *Event) SetID(id string) {
+func (e *BaseEvent) SetID(id string) {
 	if e != nil {
 		e.ID = id
 	}
 }
 
 // GetRefID returns the reference event identifier.
-func (e *Event) GetRefID() string {
+func (e *BaseEvent) GetRefID() string {
 	if e == nil {
 		return ""
 	}
@@ -82,14 +91,14 @@ func (e *Event) GetRefID() string {
 }
 
 // SetRefID sets the reference event identifier.
-func (e *Event) SetRefID(id string) {
+func (e *BaseEvent) SetRefID(id string) {
 	if e != nil {
 		e.RefID = id
 	}
 }
 
 // GetChannel returns the delivery channel name, if dispatched over a channel.
-func (e *Event) GetChannel() string {
+func (e *BaseEvent) GetChannel() string {
 	if e == nil {
 		return ""
 	}
@@ -97,14 +106,14 @@ func (e *Event) GetChannel() string {
 }
 
 // SetChannel sets the delivery channel name.
-func (e *Event) SetChannel(channel string) {
+func (e *BaseEvent) SetChannel(channel string) {
 	if e != nil {
 		e.Channel = channel
 	}
 }
 
 // GetType returns the event type.
-func (e *Event) GetType() EventType {
+func (e *BaseEvent) GetType() EventType {
 	if e == nil {
 		return ""
 	}
@@ -112,7 +121,7 @@ func (e *Event) GetType() EventType {
 }
 
 // GetSource returns the sender identifier.
-func (e *Event) GetSource() string {
+func (e *BaseEvent) GetSource() string {
 	if e == nil {
 		return ""
 	}
@@ -120,7 +129,7 @@ func (e *Event) GetSource() string {
 }
 
 // GetTarget returns the recipient (channel name or client identifier).
-func (e *Event) GetTarget() string {
+func (e *BaseEvent) GetTarget() string {
 	if e == nil {
 		return ""
 	}
@@ -128,71 +137,258 @@ func (e *Event) GetTarget() string {
 }
 
 // GetToken returns the optional authentication/authorization token.
-func (e *Event) GetToken() string {
+func (e *BaseEvent) GetToken() string {
 	if e == nil {
 		return ""
 	}
 	return e.Token
 }
 
+// GetTimestamp returns the event timestamp.
+func (e *BaseEvent) GetTimestamp() time.Time {
+	if e == nil {
+		return time.Time{}
+	}
+	return e.Timestamp
+}
+
+// SetTimestamp sets the event timestamp.
+func (e *BaseEvent) SetTimestamp(t time.Time) {
+	if e != nil {
+		e.Timestamp = t
+	}
+}
+
+// String returns a human-readable summary of the Event.
+func (e *Event[T]) String() string {
+	if e == nil {
+		return "<nil event>"
+	}
+	return e.BaseEvent.String()
+}
+
+// GetID returns the event identifier.
+func (e *Event[T]) GetID() string {
+	if e == nil {
+		return ""
+	}
+	return e.BaseEvent.GetID()
+}
+
+// SetID sets the event identifier.
+func (e *Event[T]) SetID(id string) {
+	if e != nil {
+		e.BaseEvent.SetID(id)
+	}
+}
+
+// GetRefID returns the reference event identifier.
+func (e *Event[T]) GetRefID() string {
+	if e == nil {
+		return ""
+	}
+	return e.BaseEvent.GetRefID()
+}
+
+// SetRefID sets the reference event identifier.
+func (e *Event[T]) SetRefID(id string) {
+	if e != nil {
+		e.BaseEvent.SetRefID(id)
+	}
+}
+
+// GetChannel returns the delivery channel name, if dispatched over a channel.
+func (e *Event[T]) GetChannel() string {
+	if e == nil {
+		return ""
+	}
+	return e.BaseEvent.GetChannel()
+}
+
+// SetChannel sets the delivery channel name.
+func (e *Event[T]) SetChannel(channel string) {
+	if e != nil {
+		e.BaseEvent.SetChannel(channel)
+	}
+}
+
+// GetType returns the event type.
+func (e *Event[T]) GetType() EventType {
+	if e == nil {
+		return ""
+	}
+	return e.BaseEvent.GetType()
+}
+
+// GetSource returns the sender identifier.
+func (e *Event[T]) GetSource() string {
+	if e == nil {
+		return ""
+	}
+	return e.BaseEvent.GetSource()
+}
+
+// GetTarget returns the recipient (channel name or client identifier).
+func (e *Event[T]) GetTarget() string {
+	if e == nil {
+		return ""
+	}
+	return e.BaseEvent.GetTarget()
+}
+
+// GetToken returns the optional authentication/authorization token.
+func (e *Event[T]) GetToken() string {
+	if e == nil {
+		return ""
+	}
+	return e.BaseEvent.GetToken()
+}
+
+// GetTimestamp returns the event timestamp.
+func (e *Event[T]) GetTimestamp() time.Time {
+	if e == nil {
+		return time.Time{}
+	}
+	return e.BaseEvent.GetTimestamp()
+}
+
+// SetTimestamp sets the event timestamp.
+func (e *Event[T]) SetTimestamp(t time.Time) {
+	if e != nil {
+		e.BaseEvent.SetTimestamp(t)
+	}
+}
+
+// CreateReply creates a response RawEvent correlating to event e.
+func (e *Event[T]) CreateReply(replyType EventType, data any) (*RawEvent, error) {
+	if e == nil {
+		return nil, errors.New("cannot create reply from nil event")
+	}
+	return e.BaseEvent.CreateReply(replyType, data)
+}
+
 // GetData unmarshals the JSON payload into either a primitive string, raw bytes (for NTP events), or generic JSON structure.
-func (e *Event) GetData() (any, error) {
-	if e == nil || len(e.Data) == 0 {
+func (e *Event[T]) GetData() (any, error) {
+	if e == nil {
 		return nil, nil
 	}
-	switch e.Type {
-	case TypeNTPQuery, TypeNTPResponse, TypeNTPError:
-		var raw []byte
-		if err := json.Unmarshal(e.Data, &raw); err == nil {
-			return raw, nil
+	switch d := any(e.Data).(type) {
+	case jsontext.Value:
+		if len(d) == 0 {
+			return nil, nil
 		}
-	case TypeFile:
-		var fm FileMessage
-		if err := json.Unmarshal(e.Data, &fm); err == nil {
-			return &fm, nil
+		switch e.Type {
+		case TypeNTPQuery, TypeNTPResponse, TypeNTPError:
+			var raw []byte
+			if err := json.Unmarshal(d, &raw); err == nil {
+				return raw, nil
+			}
+		case TypeFile:
+			var fm FileMessage
+			if err := json.Unmarshal(d, &fm); err == nil {
+				return &fm, nil
+			}
+		case TypeChannelInfoResponse:
+			var ci ChannelInfo
+			if err := json.Unmarshal(d, &ci); err == nil {
+				return &ci, nil
+			}
 		}
-	case TypeChannelInfoResponse:
-		var ci ChannelInfo
-		if err := json.Unmarshal(e.Data, &ci); err == nil {
-			return &ci, nil
+		var msg string
+		if err := json.Unmarshal(d, &msg); err == nil {
+			return msg, nil
 		}
+		var raw any
+		if err := json.Unmarshal(d, &raw); err != nil {
+			return nil, errors.Wrapf(err, "cannot unmarshal event data: %v", string(d))
+		}
+		return raw, nil
+	default:
+		return e.Data, nil
 	}
-	var msg string
-	if err := json.Unmarshal(e.Data, &msg); err == nil {
-		return msg, nil
-	}
-	var raw any
-	if err := json.Unmarshal(e.Data, &raw); err != nil {
-		return nil, errors.Wrapf(err, "cannot unmarshal event data: %v", string(e.Data))
-	}
-	return raw, nil
 }
 
 // UnmarshalData unmarshals the Event's JSON payload into the target value pointer.
-func (e *Event) UnmarshalData(v any) error {
-	if e == nil || len(e.Data) == 0 {
+func (e *Event[T]) UnmarshalData(v any) error {
+	if e == nil {
 		return errors.New("empty event data")
 	}
-	if err := json.Unmarshal(e.Data, v); err != nil {
-		return errors.Wrapf(err, "failed to unmarshal event data into %T", v)
+	switch d := any(e.Data).(type) {
+	case jsontext.Value:
+		if len(d) == 0 {
+			return errors.New("empty event data")
+		}
+		if err := json.Unmarshal(d, v); err != nil {
+			return errors.Wrapf(err, "failed to unmarshal event data into %T", v)
+		}
+		return nil
+	case []byte:
+		if len(d) == 0 {
+			return errors.New("empty event data")
+		}
+		if err := json.Unmarshal(d, v); err != nil {
+			return errors.Wrapf(err, "failed to unmarshal event data into %T", v)
+		}
+		return nil
+	case nil:
+		return errors.New("empty event data")
+	default:
+		b, err := json.Marshal(e.Data)
+		if err != nil {
+			return errors.Wrapf(err, "failed to marshal event data of type %T", e.Data)
+		}
+		if err := json.Unmarshal(b, v); err != nil {
+			return errors.Wrapf(err, "failed to unmarshal event data into %T", v)
+		}
+		return nil
 	}
-	return nil
 }
 
 // GetStringData attempts to extract the payload as a string.
 // If the payload is a raw string or JSON-encoded string, it returns that string.
-func (e *Event) GetStringData() (string, error) {
-	if e == nil || len(e.Data) == 0 {
+func (e *Event[T]) GetStringData() (string, error) {
+	if e == nil {
 		return "", nil
 	}
-	var str string
-	if err := json.Unmarshal(e.Data, &str); err == nil {
-		return str, nil
+	switch d := any(e.Data).(type) {
+	case jsontext.Value:
+		if len(d) == 0 {
+			return "", nil
+		}
+		var str string
+		if err := json.Unmarshal(d, &str); err == nil {
+			return str, nil
+		}
+		return string(d), nil
+	case []byte:
+		if len(d) == 0 {
+			return "", nil
+		}
+		var str string
+		if err := json.Unmarshal(d, &str); err == nil {
+			return str, nil
+		}
+		return string(d), nil
+	case string:
+		return d, nil
+	case fmt.Stringer:
+		return d.String(), nil
+	case nil:
+		return "", nil
+	default:
+		b, err := json.Marshal(e.Data)
+		if err != nil {
+			return "", errors.Wrapf(err, "cannot marshal event data: %v", e.Data)
+		}
+		var str string
+		if err := json.Unmarshal(b, &str); err == nil {
+			return str, nil
+		}
+		return string(b), nil
 	}
-	return string(e.Data), nil
 }
 
-// CreateReply creates a response Event correlating to the original event e.
+// CreateReply creates a response RawEvent correlating to the original event e.
 // The created event sets:
 // - ID: a newly generated unique identifier
 // - RefID: the ID of event e
@@ -201,7 +397,7 @@ func (e *Event) GetStringData() (string, error) {
 // - Token: e.Token (if present)
 // - Type: replyType
 // - Data: JSON-marshaled payload of data
-func (e *Event) CreateReply(replyType EventType, data any) (*Event, error) {
+func (e *BaseEvent) CreateReply(replyType EventType, data any) (*RawEvent, error) {
 	if e == nil {
 		return nil, errors.New("cannot create reply from nil event")
 	}
@@ -216,14 +412,16 @@ func (e *Event) CreateReply(replyType EventType, data any) (*Event, error) {
 	if target == "" {
 		target = e.Target
 	}
-	reply := &Event{
-		ID:      GenerateEventID(),
-		RefID:   e.ID,
-		Type:    replyType,
-		Target:  target,
-		Channel: e.Channel,
-		Token:   e.Token,
-		Data:    raw,
+	reply := &RawEvent{
+		BaseEvent: BaseEvent{
+			ID:      GenerateEventID(),
+			RefID:   e.ID,
+			Type:    replyType,
+			Target:  target,
+			Channel: e.Channel,
+			Token:   e.Token,
+		},
+		Data: raw,
 	}
 	return reply, nil
 }

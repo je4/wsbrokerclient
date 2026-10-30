@@ -19,8 +19,8 @@ type WSMessage struct {
 	Data      string    `json:"data,omitempty"`
 }
 
-// NewWSMessage converts an Event into a WSMessage log entry.
-func NewWSMessage(direction string, evt *Event) WSMessage {
+// NewWSMessage converts a RawEvent into a WSMessage log entry.
+func NewWSMessage(direction string, evt *RawEvent) WSMessage {
 	if evt == nil {
 		return WSMessage{Timestamp: time.Now().UTC(), Direction: direction}
 	}

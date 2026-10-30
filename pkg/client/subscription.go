@@ -8,7 +8,7 @@ import (
 
 type subscription struct {
 	channel string
-	events  chan *event.Event
+	events  chan *event.RawEvent
 	client  *Client
 	once    sync.Once
 	closed  bool
@@ -21,7 +21,7 @@ func newSubscription(channel string, bufferSize int, c *Client) *subscription {
 	}
 	return &subscription{
 		channel: channel,
-		events:  make(chan *event.Event, bufferSize),
+		events:  make(chan *event.RawEvent, bufferSize),
 		client:  c,
 	}
 }
@@ -32,7 +32,7 @@ func (s *subscription) Channel() string {
 }
 
 // Events returns the receive-only channel carrying incoming events.
-func (s *subscription) Events() <-chan *event.Event {
+func (s *subscription) Events() <-chan *event.RawEvent {
 	return s.events
 }
 
@@ -52,7 +52,7 @@ func (s *subscription) Unsubscribe() error {
 	return err
 }
 
-func (s *subscription) deliver(evt *event.Event) {
+func (s *subscription) deliver(evt *event.RawEvent) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {

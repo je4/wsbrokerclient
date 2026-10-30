@@ -104,7 +104,7 @@ func NewChatClient(conf *WSChatConfig, store *MessageStore, logger zLogger.ZLogg
 
 	// 5. Register central message event listener.
 	// Inbound messages from all subscribed channels will be routed to this callback.
-	c.client.OnMessage(func(evt *event.Event) {
+	c.client.OnMessage(func(evt *event.RawEvent) {
 		c.handleIncomingEvent(evt)
 	})
 
@@ -168,7 +168,7 @@ func (c *ChatClient) AttachChannel(ctx context.Context, channel string) error {
 // handleIncomingEvent processes inbound event messages received from wsbrokerclient.
 // It extracts message payload, target channel, and sender information, while filtering
 // out self-sent echoes to prevent duplicate messages in the UI.
-func (c *ChatClient) handleIncomingEvent(evt *event.Event) {
+func (c *ChatClient) handleIncomingEvent(evt *event.RawEvent) {
 	if evt == nil {
 		return
 	}

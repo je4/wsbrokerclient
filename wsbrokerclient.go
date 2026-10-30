@@ -4,6 +4,8 @@
 package wsbrokerclient
 
 import (
+	"context"
+
 	"github.com/beevik/ntp"
 	"github.com/je4/wsbrokerclient/pkg/client"
 	"github.com/je4/wsbrokerclient/pkg/event"
@@ -42,8 +44,14 @@ type (
 	// Subscription represents an active channel subscription stream.
 	Subscription = client.Subscription
 
-	// Event is the standardized message envelope.
-	Event = event.Event
+	// BaseEvent encapsulates all transport, routing, and correlation metadata.
+	BaseEvent = event.BaseEvent
+
+	// Event is the standardized generic message envelope coupling transport metadata with a domain payload.
+	Event[T any] = event.Event[T]
+
+	// RawEvent represents an event envelope with unparsed JSON payload.
+	RawEvent = event.RawEvent
 
 	// EventType is the category of message.
 	EventType = event.EventType
@@ -174,3 +182,28 @@ var (
 	GenerateEventID             = event.GenerateEventID
 	GenerateToken               = client.GenerateToken
 )
+
+// RequestTyped sends a RawEvent request and unmarshals the correlated response payload into Resp.
+func RequestTyped[Resp any](ctx context.Context, c ClientInterface, evt *RawEvent) (*Event[Resp], error) {
+	return client.RequestTyped[Resp](ctx, c, evt)
+}
+
+// RequestPayload creates and sends a typed request, returning a strongly-typed response.
+func RequestPayload[Resp any, Req any](ctx context.Context, c ClientInterface, target string, reqType event.EventType, payload Req) (*Event[Resp], error) {
+	return client.RequestPayload[Resp, Req](ctx, c, target, reqType, payload)
+}
+
+// ToTyped converts a RawEvent into a strongly-typed Event[T] by unmarshaling its JSON payload into T.
+func ToTyped[T any](raw *RawEvent) (*Event[T], error) {
+	return event.ToTyped[T](raw)
+}
+
+// ToRaw converts a typed Event[T] into a RawEvent by JSON-marshaling its payload into jsontext.Value.
+func ToRaw[T any](evt *Event[T]) (*RawEvent, error) {
+	return event.ToRaw[T](evt)
+}
+
+// NewEventTyped constructs a strongly-typed Event[T] with generated ID and metadata.
+func NewEventTyped[T any](eventType EventType, source, target string, data T) (*Event[T], error) {
+	return event.NewEventTyped[T](eventType, source, target, data)
+}

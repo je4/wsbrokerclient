@@ -174,8 +174,8 @@ func (c *RESTClient) Ping(ctx context.Context) (string, error) {
 	return strings.TrimSpace(result), err
 }
 
-// Publish dispatches a standardized Event or PublishRequest through the WSBroker REST endpoint.
-func (c *RESTClient) Publish(ctx context.Context, evt *event.Event) (*PublishResponse, error) {
+// Publish dispatches a standardized RawEvent or PublishRequest through the WSBroker REST endpoint.
+func (c *RESTClient) Publish(ctx context.Context, evt *event.RawEvent) (*PublishResponse, error) {
 	if evt == nil {
 		return nil, errors.New("event is nil")
 	}

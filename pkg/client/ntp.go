@@ -24,9 +24,9 @@ func (c *Client) QueryNTP(ctx context.Context, data []byte) ([]byte, error) {
 		evt.ID = event.GenerateEventID()
 	}
 
-	respCh := make(chan *event.Event, 1)
+	respCh := make(chan *event.RawEvent, 1)
 
-	unsubResp := c.OnType(event.TypeNTPResponse, func(e *event.Event) {
+	unsubResp := c.OnType(event.TypeNTPResponse, func(e *event.RawEvent) {
 		if e.RefID != "" {
 			if e.RefID == evt.ID {
 				select {
@@ -43,7 +43,7 @@ func (c *Client) QueryNTP(ctx context.Context, data []byte) ([]byte, error) {
 	})
 	defer unsubResp()
 
-	unsubErr := c.OnType(event.TypeNTPError, func(e *event.Event) {
+	unsubErr := c.OnType(event.TypeNTPError, func(e *event.RawEvent) {
 		if e.RefID != "" {
 			if e.RefID == evt.ID {
 				select {

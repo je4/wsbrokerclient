@@ -104,7 +104,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to marshal event: %v", err)
 	}
-	var roundtrip event.Event
+	var roundtrip event.RawEvent
 	if err := json.Unmarshal(b, &roundtrip); err != nil {
 		t.Fatalf("failed to unmarshal event: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestEventIDAndChannelHelpers(t *testing.T) {
 	}
 
 	// Test Getters and Setters on nil Event
-	var nilEvt *event.Event
+	var nilEvt *event.RawEvent
 	if nilEvt.GetID() != "" {
 		t.Errorf("expected empty ID for nil event, got %q", nilEvt.GetID())
 	}
@@ -359,7 +359,7 @@ func TestEventIDAndChannelHelpers(t *testing.T) {
 	nilEvt.SetChannel("test-ch")
 
 	// Test Getters and Setters on active Event
-	evt := &event.Event{}
+	evt := &event.RawEvent{}
 	evt.SetID("evt-custom-99")
 	evt.SetChannel("room-dev")
 	if evt.GetID() != "evt-custom-99" {
@@ -375,17 +375,17 @@ func TestEventIDAndChannelHelpers(t *testing.T) {
 		t.Errorf("unexpected event String() representation: %s", strWithCh)
 	}
 
-	evtOnlyCh := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1"}
+	evtOnlyCh := &event.RawEvent{BaseEvent: event.BaseEvent{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1"}}
 	if evtOnlyCh.String() != "message [s -> t (channel: ch1)]" {
 		t.Errorf("expected 'message [s -> t (channel: ch1)]', got %q", evtOnlyCh.String())
 	}
 
-	evtOnlyID := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", ID: "id1"}
+	evtOnlyID := &event.RawEvent{BaseEvent: event.BaseEvent{Type: event.TypeMessage, Source: "s", Target: "t", ID: "id1"}}
 	if evtOnlyID.String() != "message [s -> t] (id1)" {
 		t.Errorf("expected 'message [s -> t] (id1)', got %q", evtOnlyID.String())
 	}
 
-	evtBoth := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1", ID: "id1"}
+	evtBoth := &event.RawEvent{BaseEvent: event.BaseEvent{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1", ID: "id1"}}
 	if evtBoth.String() != "message [s -> t (channel: ch1)] (id1)" {
 		t.Errorf("expected 'message [s -> t (channel: ch1)] (id1)', got %q", evtBoth.String())
 	}
@@ -395,7 +395,7 @@ func TestEventIDAndChannelHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to marshal event: %v", err)
 	}
-	var unmarshaled event.Event
+	var unmarshaled event.RawEvent
 	if err := json.Unmarshal(b, &unmarshaled); err != nil {
 		t.Fatalf("failed to unmarshal event: %v", err)
 	}
@@ -422,19 +422,21 @@ func stringContains(s, substr string) bool {
 
 func TestEventRefIDAndReplyHelpers(t *testing.T) {
 	// 1. Getters and Setters for RefID
-	var nilEvt *event.Event
+	var nilEvt *event.RawEvent
 	if nilEvt.GetRefID() != "" {
 		t.Errorf("expected empty RefID for nil event, got %q", nilEvt.GetRefID())
 	}
 	nilEvt.SetRefID("ref-123")
 
-	orig := &event.Event{
-		ID:      "evt-orig-123",
-		Type:    event.TypeMessage,
-		Source:  "client-alice",
-		Target:  "client-bob",
-		Channel: "chat-room",
-		Token:   "tok-secret",
+	orig := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:      "evt-orig-123",
+			Type:    event.TypeMessage,
+			Source:  "client-alice",
+			Target:  "client-bob",
+			Channel: "chat-room",
+			Token:   "tok-secret",
+		},
 	}
 	orig.SetRefID("ref-parent-0")
 	if orig.GetRefID() != "ref-parent-0" {
@@ -442,17 +444,17 @@ func TestEventRefIDAndReplyHelpers(t *testing.T) {
 	}
 
 	// 2. String() with RefID formatting
-	evtOnlyRef := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", RefID: "ref1"}
+	evtOnlyRef := &event.RawEvent{BaseEvent: event.BaseEvent{Type: event.TypeMessage, Source: "s", Target: "t", RefID: "ref1"}}
 	if evtOnlyRef.String() != "message [s -> t] (ref: ref1)" {
 		t.Errorf("expected 'message [s -> t] (ref: ref1)', got %q", evtOnlyRef.String())
 	}
 
-	evtBothIDAndRef := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", ID: "id1", RefID: "ref1"}
+	evtBothIDAndRef := &event.RawEvent{BaseEvent: event.BaseEvent{Type: event.TypeMessage, Source: "s", Target: "t", ID: "id1", RefID: "ref1"}}
 	if evtBothIDAndRef.String() != "message [s -> t] (id: id1, ref: ref1)" {
 		t.Errorf("expected 'message [s -> t] (id: id1, ref: ref1)', got %q", evtBothIDAndRef.String())
 	}
 
-	evtBothWithChan := &event.Event{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1", ID: "id1", RefID: "ref1"}
+	evtBothWithChan := &event.RawEvent{BaseEvent: event.BaseEvent{Type: event.TypeMessage, Source: "s", Target: "t", Channel: "ch1", ID: "id1", RefID: "ref1"}}
 	if evtBothWithChan.String() != "message [s -> t (channel: ch1)] (id: id1, ref: ref1)" {
 		t.Errorf("expected 'message [s -> t (channel: ch1)] (id: id1, ref: ref1)', got %q", evtBothWithChan.String())
 	}
@@ -535,5 +537,75 @@ func TestEventRefIDAndReplyHelpers(t *testing.T) {
 	}
 	if ciErr.RefID != "ref-ci-2" {
 		t.Errorf("expected ciErr RefID 'ref-ci-2', got %q", ciErr.RefID)
+	}
+}
+
+func TestGenericEventAndConversions(t *testing.T) {
+	// 1. NewEventTyped
+	payload := customPayload{ID: 100, Title: "Generic Test"}
+	typedEvt, err := event.NewEventTyped(event.TypeMessage, "client-a", "channel-b", payload)
+	if err != nil {
+		t.Fatalf("NewEventTyped failed: %v", err)
+	}
+	if typedEvt.Data.ID != 100 || typedEvt.Data.Title != "Generic Test" {
+		t.Errorf("unexpected typedEvt Data: %+v", typedEvt.Data)
+	}
+	if typedEvt.GetSource() != "client-a" || typedEvt.GetTarget() != "channel-b" {
+		t.Errorf("unexpected metadata on typedEvt: source=%s, target=%s", typedEvt.GetSource(), typedEvt.GetTarget())
+	}
+
+	// 2. ToRaw from typed Event
+	rawEvt, err := event.ToRaw(typedEvt)
+	if err != nil {
+		t.Fatalf("ToRaw failed: %v", err)
+	}
+	if rawEvt.Type != event.TypeMessage || rawEvt.Source != "client-a" || rawEvt.Target != "channel-b" {
+		t.Errorf("metadata mismatch on rawEvt: %+v", rawEvt)
+	}
+
+	// 3. ToTyped from RawEvent
+	backToTyped, err := event.ToTyped[customPayload](rawEvt)
+	if err != nil {
+		t.Fatalf("ToTyped failed: %v", err)
+	}
+	if backToTyped.Data.ID != 100 || backToTyped.Data.Title != "Generic Test" {
+		t.Errorf("unexpected backToTyped Data: %+v", backToTyped.Data)
+	}
+
+	// 4. Wire format parity between Event[T] and RawEvent
+	typedJSON, err := json.Marshal(typedEvt)
+	if err != nil {
+		t.Fatalf("Marshal typedEvt failed: %v", err)
+	}
+	rawJSON, err := json.Marshal(rawEvt)
+	if err != nil {
+		t.Fatalf("Marshal rawEvt failed: %v", err)
+	}
+	if string(typedJSON) != string(rawJSON) {
+		t.Errorf("JSON serialization mismatch:\ntyped: %s\nraw:   %s", string(typedJSON), string(rawJSON))
+	}
+
+	// 5. Primitive type payloads in Event[T]
+	strTyped, err := event.NewEventTyped(event.TypeMessage, "s", "t", "simple string")
+	if err != nil {
+		t.Fatalf("NewEventTyped with string failed: %v", err)
+	}
+	strRaw, err := event.ToRaw(strTyped)
+	if err != nil {
+		t.Fatalf("ToRaw with string failed: %v", err)
+	}
+	backStr, err := event.ToTyped[string](strRaw)
+	if err != nil {
+		t.Fatalf("ToTyped with string failed: %v", err)
+	}
+	if backStr.Data != "simple string" {
+		t.Errorf("expected 'simple string', got %q", backStr.Data)
+	}
+
+	// 6. BaseEvent timestamp
+	now := typedEvt.Timestamp
+	typedEvt.SetTimestamp(now)
+	if typedEvt.GetTimestamp() != now {
+		t.Errorf("expected timestamp %v, got %v", now, typedEvt.GetTimestamp())
 	}
 }

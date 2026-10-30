@@ -11,7 +11,7 @@ import (
 	"github.com/je4/wsbrokerclient/pkg/event"
 )
 
-func (c *Client) writeEvent(ctx context.Context, conn *websocket.Conn, evt *event.Event) error {
+func (c *Client) writeEvent(ctx context.Context, conn *websocket.Conn, evt *event.RawEvent) error {
 	if conn == nil {
 		return errors.New("not connected")
 	}
@@ -23,7 +23,7 @@ func (c *Client) writeEvent(ctx context.Context, conn *websocket.Conn, evt *even
 }
 
 // Send writes an event envelope to the WebSocket connection.
-func (c *Client) Send(ctx context.Context, evt *event.Event) error {
+func (c *Client) Send(ctx context.Context, evt *event.RawEvent) error {
 	if c.closed.Load() {
 		return errors.New("client is closed")
 	}
@@ -66,12 +66,12 @@ func (c *Client) SendMessage(ctx context.Context, target string, data any) error
 }
 
 // Reply sends a correlated TypeMessage response event to originalEvt carrying data payload.
-func (c *Client) Reply(ctx context.Context, originalEvt *event.Event, data any) error {
+func (c *Client) Reply(ctx context.Context, originalEvt *event.RawEvent, data any) error {
 	return c.ReplyType(ctx, originalEvt, event.TypeMessage, data)
 }
 
 // ReplyType sends a correlated response event of the specified replyType to originalEvt.
-func (c *Client) ReplyType(ctx context.Context, originalEvt *event.Event, replyType event.EventType, data any) error {
+func (c *Client) ReplyType(ctx context.Context, originalEvt *event.RawEvent, replyType event.EventType, data any) error {
 	if originalEvt == nil {
 		return errors.New("cannot reply to nil event")
 	}

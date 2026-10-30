@@ -52,7 +52,7 @@ type Client struct {
 	subMu         sync.RWMutex
 
 	// RPC / Request-Reply waiters correlated by event.Token
-	waiters   map[string]chan *event.Event
+	waiters   map[string]chan *event.RawEvent
 	waitersMu sync.RWMutex
 
 	// Lifecycle callbacks
@@ -131,7 +131,7 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 		typeListeners: make(map[event.EventType][]listenerEntry),
 		chanListeners: make(map[string][]listenerEntry),
 		subscriptions: make(map[string][]*subscription),
-		waiters:       make(map[string]chan *event.Event),
+		waiters:       make(map[string]chan *event.RawEvent),
 		ctx:           ctx,
 		cancel:        cancel,
 		reconnCh:      make(chan struct{}, 1),

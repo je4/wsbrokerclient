@@ -45,7 +45,7 @@ func TestTopLevelClientIntegration(t *testing.T) {
 		}()
 
 		for {
-			var evt wsbrokerclient.Event
+			var evt wsbrokerclient.RawEvent
 			if err := wsjson.Read(r.Context(), conn, &evt); err != nil {
 				break
 			}
@@ -169,7 +169,7 @@ func TestTopLevelChannelInfoIntegration(t *testing.T) {
 		}()
 
 		for {
-			var evt wsbrokerclient.Event
+			var evt wsbrokerclient.RawEvent
 			if err := wsjson.Read(r.Context(), conn, &evt); err != nil {
 				break
 			}
@@ -298,5 +298,37 @@ func TestTopLevelReplyAndRefID(t *testing.T) {
 	}
 	if reply.ID == "" || reply.ID == orig.ID {
 		t.Errorf("expected unique new event ID, got %q", reply.ID)
+	}
+}
+
+type topLevelReq struct {
+	Greeting string `json:"greeting"`
+}
+
+type topLevelResp struct {
+	Reply string `json:"reply"`
+}
+
+func TestTopLevelGenericRPCAndConversions(t *testing.T) {
+	// 1. NewEventTyped & ToRaw
+	typedEvt, err := wsbrokerclient.NewEventTyped(wsbrokerclient.TypeMessage, "src", "dst", topLevelReq{Greeting: "hi"})
+	if err != nil {
+		t.Fatalf("NewEventTyped failed: %v", err)
+	}
+	rawEvt, err := wsbrokerclient.ToRaw(typedEvt)
+	if err != nil {
+		t.Fatalf("ToRaw failed: %v", err)
+	}
+	if rawEvt.Type != wsbrokerclient.TypeMessage {
+		t.Errorf("expected TypeMessage, got %s", rawEvt.Type)
+	}
+
+	// 2. ToTyped
+	backTyped, err := wsbrokerclient.ToTyped[topLevelReq](rawEvt)
+	if err != nil {
+		t.Fatalf("ToTyped failed: %v", err)
+	}
+	if backTyped.Data.Greeting != "hi" {
+		t.Errorf("expected 'hi', got %s", backTyped.Data.Greeting)
 	}
 }

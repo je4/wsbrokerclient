@@ -28,9 +28,9 @@ func (c *Client) QueryChannelInfo(ctx context.Context, channel string) (*event.C
 		evt.ID = event.GenerateEventID()
 	}
 
-	respCh := make(chan *event.Event, 1)
+	respCh := make(chan *event.RawEvent, 1)
 
-	unsubResp := c.OnType(event.TypeChannelInfoResponse, func(e *event.Event) {
+	unsubResp := c.OnType(event.TypeChannelInfoResponse, func(e *event.RawEvent) {
 		if e.RefID != "" {
 			if e.RefID == evt.ID {
 				select {
@@ -52,7 +52,7 @@ func (c *Client) QueryChannelInfo(ctx context.Context, channel string) (*event.C
 	})
 	defer unsubResp()
 
-	unsubErr := c.OnType(event.TypeChannelInfoError, func(e *event.Event) {
+	unsubErr := c.OnType(event.TypeChannelInfoError, func(e *event.RawEvent) {
 		if e.RefID != "" {
 			if e.RefID == evt.ID {
 				select {

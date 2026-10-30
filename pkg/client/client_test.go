@@ -25,7 +25,7 @@ type mockBrokerServer struct {
 	mu           sync.Mutex
 	connections  map[string]*websocket.Conn
 	groups       map[string][]string // channel -> []clientName
-	receivedEvts []*event.Event
+	receivedEvts []*event.RawEvent
 	authBearer   string
 	rejectCount  atomic.Int32
 }
@@ -93,7 +93,7 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		var evt event.Event
+		var evt event.RawEvent
 		if err := wsjson.Read(r.Context(), conn, &evt); err != nil {
 			break
 		}
@@ -180,7 +180,7 @@ func TestClientConnectAndPublish(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	receivedCh := make(chan *event.Event, 10)
+	receivedCh := make(chan *event.RawEvent, 10)
 
 	cli, err := client.New(client.DefaultConfig(),
 		client.WithEndpoint(ts.URL),
@@ -193,7 +193,7 @@ func TestClientConnectAndPublish(t *testing.T) {
 	}
 	defer cli.Close()
 
-	cli.OnChannel("alerts", func(evt *event.Event) {
+	cli.OnChannel("alerts", func(evt *event.RawEvent) {
 		receivedCh <- evt
 	})
 
@@ -321,8 +321,8 @@ func TestDirectMessagingAndHandlers(t *testing.T) {
 	}
 	defer cli2.Close()
 
-	directCh := make(chan *event.Event, 10)
-	cli2.OnDirect(func(evt *event.Event) {
+	directCh := make(chan *event.RawEvent, 10)
+	cli2.OnDirect(func(evt *event.RawEvent) {
 		directCh <- evt
 	})
 
@@ -793,8 +793,8 @@ func TestClient_LargePayload(t *testing.T) {
 	}
 	defer receiver.Close()
 
-	received := make(chan *event.Event, 1)
-	receiver.OnEvent(func(evt *event.Event) {
+	received := make(chan *event.RawEvent, 1)
+	receiver.OnEvent(func(evt *event.RawEvent) {
 		if evt.Target == "receiver" {
 			received <- evt
 		}
@@ -988,7 +988,7 @@ func TestClient_RequestReply(t *testing.T) {
 	}
 
 	// Responder listens for direct messages and responds using Reply
-	cli2.OnDirect(func(evt *event.Event) {
+	cli2.OnDirect(func(evt *event.RawEvent) {
 		var reqMsg string
 		_ = evt.UnmarshalData(&reqMsg)
 
@@ -1084,7 +1084,7 @@ func TestClient_RequestN(t *testing.T) {
 	}
 
 	// Responder sends multiple responses for any direct event
-	cli2.OnDirect(func(evt *event.Event) {
+	cli2.OnDirect(func(evt *event.RawEvent) {
 		var reqMsg string
 		_ = evt.UnmarshalData(&reqMsg)
 
@@ -1103,7 +1103,7 @@ func TestClient_RequestN(t *testing.T) {
 	originalID := "some-prefilled-id"
 	reqEvt.ID = originalID
 
-	respCh := make(chan *event.Event, 5)
+	respCh := make(chan *event.RawEvent, 5)
 	err = cli1.RequestN(ctx, reqEvt, 3, respCh)
 	if err != nil {
 		t.Fatalf("RequestN failed: %v", err)
@@ -1136,7 +1136,7 @@ func TestClient_RequestN(t *testing.T) {
 	defer timeoutCancel()
 
 	timeoutReq, _ := event.NewMessageEvent("", "responder2", "expect-too-many")
-	timeoutCh := make(chan *event.Event, 10)
+	timeoutCh := make(chan *event.RawEvent, 10)
 	err = cli1.RequestN(timeoutCtx, timeoutReq, 5, timeoutCh)
 	if err == nil {
 		t.Error("expected timeout error when expecting 5 results from responder that sends 3, got nil")
@@ -1187,7 +1187,7 @@ func TestClient_Request1(t *testing.T) {
 		t.Fatalf("failed to connect responder1: %v", err)
 	}
 
-	cli2.OnDirect(func(evt *event.Event) {
+	cli2.OnDirect(func(evt *event.RawEvent) {
 		var reqMsg string
 		_ = evt.UnmarshalData(&reqMsg)
 
@@ -1273,8 +1273,8 @@ func TestClient_Request0(t *testing.T) {
 		t.Fatalf("failed to connect responder0: %v", err)
 	}
 
-	received := make(chan *event.Event, 1)
-	cli2.OnDirect(func(evt *event.Event) {
+	received := make(chan *event.RawEvent, 1)
+	cli2.OnDirect(func(evt *event.RawEvent) {
 		received <- evt
 	})
 
@@ -1336,8 +1336,8 @@ func TestClient_ChannelAndIDRouting(t *testing.T) {
 		t.Fatalf("failed to connect client: %v", err)
 	}
 
-	chanCh := make(chan *event.Event, 5)
-	cli.OnChannel("sports", func(evt *event.Event) {
+	chanCh := make(chan *event.RawEvent, 5)
+	cli.OnChannel("sports", func(evt *event.RawEvent) {
 		chanCh <- evt
 	})
 
@@ -1431,12 +1431,12 @@ func TestClient_ReplyAndRefIDCorrelation(t *testing.T) {
 		t.Fatalf("failed to connect client-b: %v", err)
 	}
 
-	replyReceived := make(chan *event.Event, 1)
-	cliA.OnDirect(func(evt *event.Event) {
+	replyReceived := make(chan *event.RawEvent, 1)
+	cliA.OnDirect(func(evt *event.RawEvent) {
 		replyReceived <- evt
 	})
 
-	cliB.OnDirect(func(evt *event.Event) {
+	cliB.OnDirect(func(evt *event.RawEvent) {
 		// Reply back to client-a
 		_ = cliB.Reply(ctx, evt, "response-to-alice")
 	})
@@ -1507,7 +1507,7 @@ func TestClient_AutomaticPongRefID(t *testing.T) {
 
 	// Wait for Pong response from client
 	deadline := time.Now().Add(3 * time.Second)
-	var foundPong *event.Event
+	var foundPong *event.RawEvent
 	for time.Now().Before(deadline) {
 		mockServer.mu.Lock()
 		for _, e := range mockServer.receivedEvts {
@@ -1528,5 +1528,82 @@ func TestClient_AutomaticPongRefID(t *testing.T) {
 	}
 	if foundPong.RefID != "ping-id-98765" {
 		t.Errorf("expected Pong RefID 'ping-id-98765', got %q", foundPong.RefID)
+	}
+}
+
+type rpcReq struct {
+	Command string `json:"command"`
+}
+
+type rpcResp struct {
+	Status string `json:"status"`
+	Code   int    `json:"code"`
+}
+
+func TestClient_RequestTypedAndPayload(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli1, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("typed-caller"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create caller: %v", err)
+	}
+	defer cli1.Close()
+	if err := cli1.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect caller: %v", err)
+	}
+
+	cli2, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("typed-callee"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create callee: %v", err)
+	}
+	defer cli2.Close()
+	if err := cli2.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect callee: %v", err)
+	}
+
+	cli2.OnDirect(func(evt *event.RawEvent) {
+		var req rpcReq
+		_ = evt.UnmarshalData(&req)
+		respPayload := rpcResp{
+			Status: "ok:" + req.Command,
+			Code:   200,
+		}
+		_ = cli2.Reply(context.Background(), evt, respPayload)
+	})
+
+	// 1. Test RequestTyped
+	rawReq, err := event.NewMessageEvent("typed-caller", "typed-callee", rpcReq{Command: "get_config"})
+	if err != nil {
+		t.Fatalf("NewMessageEvent failed: %v", err)
+	}
+	typedResp, err := client.RequestTyped[rpcResp](ctx, cli1, rawReq)
+	if err != nil {
+		t.Fatalf("RequestTyped failed: %v", err)
+	}
+	if typedResp.Data.Status != "ok:get_config" || typedResp.Data.Code != 200 {
+		t.Errorf("unexpected typed response payload: %+v", typedResp.Data)
+	}
+	if typedResp.RefID != rawReq.ID {
+		t.Errorf("expected correlated RefID %s, got %s", rawReq.ID, typedResp.RefID)
+	}
+
+	// 2. Test RequestPayload
+	typedResp2, err := client.RequestPayload[rpcResp, rpcReq](ctx, cli1, "typed-callee", event.TypeMessage, rpcReq{Command: "restart"})
+	if err != nil {
+		t.Fatalf("RequestPayload failed: %v", err)
+	}
+	if typedResp2.Data.Status != "ok:restart" || typedResp2.Data.Code != 200 {
+		t.Errorf("unexpected RequestPayload response: %+v", typedResp2.Data)
 	}
 }

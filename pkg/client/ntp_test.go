@@ -68,7 +68,7 @@ func setupNTPMockServer(t *testing.T, shouldFail bool) (*httptest.Server, func()
 		defer conn.Close(websocket.StatusNormalClosure, "done")
 
 		for {
-			var evt event.Event
+			var evt event.RawEvent
 			if err := wsjson.Read(r.Context(), conn, &evt); err != nil {
 				break
 			}

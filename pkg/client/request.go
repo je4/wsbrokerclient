@@ -18,15 +18,15 @@ func GenerateToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func (c *Client) registerWaiter(token string) chan *event.Event {
-	ch := make(chan *event.Event, 1)
+func (c *Client) registerWaiter(token string) chan *event.RawEvent {
+	ch := make(chan *event.RawEvent, 1)
 	c.waitersMu.Lock()
 	c.waiters[token] = ch
 	c.waitersMu.Unlock()
 	return ch
 }
 
-func (c *Client) registerWaiterChannel(key string, ch chan *event.Event) {
+func (c *Client) registerWaiterChannel(key string, ch chan *event.RawEvent) {
 	c.waitersMu.Lock()
 	c.waiters[key] = ch
 	c.waitersMu.Unlock()
@@ -39,13 +39,13 @@ func (c *Client) unregisterWaiter(token string) {
 }
 
 // Request0 sends an event envelope without waiting for any response.
-func (c *Client) Request0(ctx context.Context, evt *event.Event) error {
+func (c *Client) Request0(ctx context.Context, evt *event.RawEvent) error {
 	return c.RequestN(ctx, evt, 0, nil)
 }
 
 // Request sends an event envelope and waits synchronously for a single correlated response using RequestN.
-func (c *Client) Request(ctx context.Context, evt *event.Event) (*event.Event, error) {
-	ch := make(chan *event.Event, 1)
+func (c *Client) Request(ctx context.Context, evt *event.RawEvent) (*event.RawEvent, error) {
+	ch := make(chan *event.RawEvent, 1)
 	if err := c.RequestN(ctx, evt, 1, ch); err != nil {
 		return nil, errors.Wrap(err, "failed to send request")
 	}
@@ -53,14 +53,14 @@ func (c *Client) Request(ctx context.Context, evt *event.Event) (*event.Event, e
 }
 
 // Request1 sends an event envelope and waits synchronously for a single correlated response (alias for Request).
-func (c *Client) Request1(ctx context.Context, evt *event.Event) (*event.Event, error) {
+func (c *Client) Request1(ctx context.Context, evt *event.RawEvent) (*event.RawEvent, error) {
 	return c.Request(ctx, evt)
 }
 
 // RequestN sends an event envelope with an event ID, waits to collect up to numResults
 // correlated responses (matching RefID equal to evt.ID) or until ctx cancels/times out,
 // and streams the received response events into ch.
-func (c *Client) RequestN(ctx context.Context, evt *event.Event, numResults int, ch chan *event.Event) error {
+func (c *Client) RequestN(ctx context.Context, evt *event.RawEvent, numResults int, ch chan *event.RawEvent) error {
 	if c.closed.Load() {
 		return errors.New("client is closed")
 	}
@@ -83,7 +83,7 @@ func (c *Client) RequestN(ctx context.Context, evt *event.Event, numResults int,
 		return c.Send(ctx, evt)
 	}
 
-	waiterCh := make(chan *event.Event, numResults)
+	waiterCh := make(chan *event.RawEvent, numResults)
 	c.registerWaiterChannel(evt.ID, waiterCh)
 	defer c.unregisterWaiter(evt.ID)
 
@@ -112,4 +112,35 @@ func (c *Client) RequestN(ctx context.Context, evt *event.Event, numResults int,
 	}
 
 	return nil
+}
+
+// RequestTyped sends a RawEvent request and unmarshals the correlated response payload into Resp.
+func RequestTyped[Resp any](ctx context.Context, c ClientInterface, evt *event.RawEvent) (*event.Event[Resp], error) {
+	if c == nil {
+		return nil, errors.New("client cannot be nil")
+	}
+	if evt == nil {
+		return nil, errors.New("request event cannot be nil")
+	}
+	rawResp, err := c.Request(ctx, evt)
+	if err != nil {
+		return nil, err
+	}
+	return event.ToTyped[Resp](rawResp)
+}
+
+// RequestPayload creates and sends a typed request, returning a strongly-typed response.
+func RequestPayload[Resp any, Req any](ctx context.Context, c ClientInterface, target string, reqType event.EventType, payload Req) (*event.Event[Resp], error) {
+	if c == nil {
+		return nil, errors.New("client cannot be nil")
+	}
+	typedReq, err := event.NewEventTyped(reqType, c.ClientName(), target, payload)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create typed request event")
+	}
+	rawReq, err := event.ToRaw(typedReq)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to convert typed request to raw event")
+	}
+	return RequestTyped[Resp](ctx, c, rawReq)
 }

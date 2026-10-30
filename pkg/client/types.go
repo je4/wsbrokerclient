@@ -66,7 +66,7 @@ const (
 )
 
 // EventHandler is a callback function invoked when a matching event is received.
-type EventHandler func(evt *event.Event)
+type EventHandler func(evt *event.RawEvent)
 
 // UnsubscribeFunc is a function that removes a registered listener or subscription when called.
 type UnsubscribeFunc func()
@@ -76,7 +76,7 @@ type Subscription interface {
 	// Channel returns the subscribed channel name.
 	Channel() string
 	// Events returns the receive-only channel carrying incoming events.
-	Events() <-chan *event.Event
+	Events() <-chan *event.RawEvent
 	// Unsubscribe stops the subscription and releases resources.
 	Unsubscribe() error
 }
@@ -103,7 +103,7 @@ type ClientInterface interface {
 	Close() error
 
 	// Send writes an event envelope to the WebSocket connection.
-	Send(ctx context.Context, evt *event.Event) error
+	Send(ctx context.Context, evt *event.RawEvent) error
 	// SendMessage sends a payload to a target (channel or direct client).
 	SendMessage(ctx context.Context, target string, data any) error
 	// Broadcast sends a broadcast payload to a channel.
@@ -111,17 +111,17 @@ type ClientInterface interface {
 	// SendDirect sends a direct message to a named client.
 	SendDirect(ctx context.Context, targetClient string, data any) error
 	// Reply sends a correlated response message to originalEvt with the provided data payload.
-	Reply(ctx context.Context, originalEvt *event.Event, data any) error
+	Reply(ctx context.Context, originalEvt *event.RawEvent, data any) error
 	// ReplyType sends a correlated response of a specific replyType to originalEvt with data payload.
-	ReplyType(ctx context.Context, originalEvt *event.Event, replyType event.EventType, data any) error
+	ReplyType(ctx context.Context, originalEvt *event.RawEvent, replyType event.EventType, data any) error
 	// Request sends an event and waits synchronously for a correlated response matching evt.Token.
-	Request(ctx context.Context, evt *event.Event) (*event.Event, error)
+	Request(ctx context.Context, evt *event.RawEvent) (*event.RawEvent, error)
 	// Request0 sends an event with a newly generated ID without waiting for any response.
-	Request0(ctx context.Context, evt *event.Event) error
+	Request0(ctx context.Context, evt *event.RawEvent) error
 	// Request1 sends an event and waits synchronously for a single correlated response using RequestN.
-	Request1(ctx context.Context, evt *event.Event) (*event.Event, error)
+	Request1(ctx context.Context, evt *event.RawEvent) (*event.RawEvent, error)
 	// RequestN sends an event and streams up to numResults correlated responses into ch until done or ctx expires.
-	RequestN(ctx context.Context, evt *event.Event, numResults int, ch chan *event.Event) error
+	RequestN(ctx context.Context, evt *event.RawEvent, numResults int, ch chan *event.RawEvent) error
 
 	// Attach subscribes the client to one or more channels dynamically.
 	Attach(ctx context.Context, channels ...string) error

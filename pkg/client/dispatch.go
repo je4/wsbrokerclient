@@ -26,7 +26,7 @@ func (c *Client) readLoop(conn *websocket.Conn) {
 			return
 		}
 
-		var evt event.Event
+		var evt event.RawEvent
 		err := wsjson.Read(c.ctx, conn, &evt)
 		if err != nil {
 			if c.closed.Load() {
@@ -75,7 +75,7 @@ func (c *Client) pingLoop(conn *websocket.Conn) {
 	}
 }
 
-func (c *Client) handleIncomingEvent(evt *event.Event) {
+func (c *Client) handleIncomingEvent(evt *event.RawEvent) {
 	if evt.Channel != "" && evt.ID != "" {
 		c.logger.Debug().Msgf("received event %s [%s -> %s (channel: %s, id: %s)]", evt.Type, evt.Source, evt.Target, evt.Channel, evt.ID)
 	} else if evt.Channel != "" {
@@ -207,7 +207,7 @@ func (c *Client) handleIncomingEvent(evt *event.Event) {
 	}
 }
 
-func (c *Client) invokeHandler(h EventHandler, evt *event.Event) {
+func (c *Client) invokeHandler(h EventHandler, evt *event.RawEvent) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
