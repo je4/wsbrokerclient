@@ -114,7 +114,7 @@ type ClientInterface interface {
 	Reply(ctx context.Context, originalEvt *event.RawEvent, data any) error
 	// ReplyType sends a correlated response of a specific replyType to originalEvt with data payload.
 	ReplyType(ctx context.Context, originalEvt *event.RawEvent, replyType event.EventType, data any) error
-	// Request sends an event and waits synchronously for a correlated response matching evt.Token.
+	// Request sends an event and waits synchronously for a correlated response matching evt.ID/evt.RefID or evt.Session.
 	Request(ctx context.Context, evt *event.RawEvent) (*event.RawEvent, error)
 	// Request0 sends an event with a newly generated ID without waiting for any response.
 	Request0(ctx context.Context, evt *event.RawEvent) error

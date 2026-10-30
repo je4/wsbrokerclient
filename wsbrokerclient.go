@@ -89,7 +89,6 @@ const (
 	TypeAttach              = event.TypeAttach
 	TypeDetach              = event.TypeDetach
 	TypeMessage             = event.TypeMessage
-	TypeStringMessage       = event.TypeStringMessage
 	TypeFile                = event.TypeFile
 	TypePing                = event.TypePing
 	TypePong                = event.TypePong
@@ -180,7 +179,7 @@ var (
 	NewReplyEvent               = event.NewReplyEvent
 	NewWSMessage                = event.NewWSMessage
 	GenerateEventID             = event.GenerateEventID
-	GenerateToken               = client.GenerateToken
+	GenerateSessionID           = client.GenerateSessionID
 )
 
 // RequestTyped sends a RawEvent request and unmarshals the correlated response payload into Resp.

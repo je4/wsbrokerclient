@@ -15,7 +15,7 @@ type WSMessage struct {
 	Source    string    `json:"source"`
 	Target    string    `json:"target,omitempty"`
 	Channel   string    `json:"channel,omitempty"`
-	Token     string    `json:"token,omitempty"`
+	Session   string    `json:"session,omitempty"`
 	Data      string    `json:"data,omitempty"`
 }
 
@@ -34,7 +34,7 @@ func NewWSMessage(direction string, evt *RawEvent) WSMessage {
 		Source:    evt.Source,
 		Target:    evt.Target,
 		Channel:   evt.Channel,
-		Token:     evt.Token,
+		Session:   evt.Session,
 		Data:      dataStr,
 	}
 }

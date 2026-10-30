@@ -23,7 +23,7 @@
   "source": "sensor-service",
   "target": "telemetry",
   "channel": "telemetry",
-  "token": "optional-auth-token",
+  "session": "sess-a1b2c3d4",
   "data": {
     "temperature": 21.5,
     "status": "nominal"
@@ -41,13 +41,13 @@
 | `Source` | `source` | `string` | Sender identifier. |
 | `Target` | `target` | `string` | Target client identifier or channel name. |
 | `Channel` | `channel` | `string` (optional) | Channel name for routed/broadcast messages. |
-| `Token` | `token` | `string` (optional) | Optional authentication or authorization token. |
+| `Session` | `session` | `string` (optional) | Optional session or workflow context identifier. |
 | `Data` | `data` | `any` | Raw JSON payload value. |
 
 ## Helper Methods
 
 - `NewMessageEvent(source, target string, data any) (*Event, error)`: Constructs a message event with arbitrary JSON-serializable payload.
-- `NewFileEvent(source, target string, file *FileMessage, token ...string) (*Event, error)`: Constructs a file event carrying binary payload and metadata.
+- `NewFileEvent(source, target string, file *FileMessage, session ...string) (*Event, error)`: Constructs a file event carrying binary payload and metadata.
 - `NewAttachEvent(source, channel string) (*Event, error)`: Constructs a channel subscription event.
 - `NewDetachEvent(source, channel string) (*Event, error)`: Constructs a channel unsubscription event.
 - `NewPingEvent(source string, data ...any) (*Event, error)`: Constructs a ping heartbeat.

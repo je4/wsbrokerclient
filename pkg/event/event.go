@@ -31,7 +31,7 @@ type BaseEvent struct {
 	Source    string    `json:"source"`
 	Target    string    `json:"target,omitempty"`
 	Channel   string    `json:"channel,omitempty"`
-	Token     string    `json:"token,omitempty"`
+	Session   string    `json:"session,omitempty"`
 	Timestamp time.Time `json:"timestamp,omitempty"`
 }
 
@@ -136,12 +136,19 @@ func (e *BaseEvent) GetTarget() string {
 	return e.Target
 }
 
-// GetToken returns the optional authentication/authorization token.
-func (e *BaseEvent) GetToken() string {
+// GetSession returns the optional session/correlation identifier.
+func (e *BaseEvent) GetSession() string {
 	if e == nil {
 		return ""
 	}
-	return e.Token
+	return e.Session
+}
+
+// SetSession sets the optional session/correlation identifier.
+func (e *BaseEvent) SetSession(session string) {
+	if e != nil {
+		e.Session = session
+	}
 }
 
 // GetTimestamp returns the event timestamp.
@@ -236,12 +243,19 @@ func (e *Event[T]) GetTarget() string {
 	return e.BaseEvent.GetTarget()
 }
 
-// GetToken returns the optional authentication/authorization token.
-func (e *Event[T]) GetToken() string {
+// GetSession returns the optional session/correlation identifier.
+func (e *Event[T]) GetSession() string {
 	if e == nil {
 		return ""
 	}
-	return e.BaseEvent.GetToken()
+	return e.BaseEvent.GetSession()
+}
+
+// SetSession sets the optional session/correlation identifier.
+func (e *Event[T]) SetSession(session string) {
+	if e != nil {
+		e.BaseEvent.SetSession(session)
+	}
 }
 
 // GetTimestamp returns the event timestamp.
@@ -394,7 +408,7 @@ func (e *Event[T]) GetStringData() (string, error) {
 // - RefID: the ID of event e
 // - Target: e.Source (or e.Channel if e.Source is empty)
 // - Channel: e.Channel (if present)
-// - Token: e.Token (if present)
+// - Session: e.Session (if present)
 // - Type: replyType
 // - Data: JSON-marshaled payload of data
 func (e *BaseEvent) CreateReply(replyType EventType, data any) (*RawEvent, error) {
@@ -419,7 +433,7 @@ func (e *BaseEvent) CreateReply(replyType EventType, data any) (*RawEvent, error
 			Type:    replyType,
 			Target:  target,
 			Channel: e.Channel,
-			Token:   e.Token,
+			Session: e.Session,
 		},
 		Data: raw,
 	}

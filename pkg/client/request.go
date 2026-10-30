@@ -9,8 +9,8 @@ import (
 	"github.com/je4/wsbrokerclient/pkg/event"
 )
 
-// GenerateToken creates a cryptographically unique 16-byte random hex token.
-func GenerateToken() (string, error) {
+// GenerateSessionID creates a cryptographically unique 16-byte random hex session identifier.
+func GenerateSessionID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "", errors.Wrap(err, "failed to read secure random bytes")
@@ -18,10 +18,10 @@ func GenerateToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func (c *Client) registerWaiter(token string) chan *event.RawEvent {
+func (c *Client) registerWaiter(key string) chan *event.RawEvent {
 	ch := make(chan *event.RawEvent, 1)
 	c.waitersMu.Lock()
-	c.waiters[token] = ch
+	c.waiters[key] = ch
 	c.waitersMu.Unlock()
 	return ch
 }
@@ -32,9 +32,9 @@ func (c *Client) registerWaiterChannel(key string, ch chan *event.RawEvent) {
 	c.waitersMu.Unlock()
 }
 
-func (c *Client) unregisterWaiter(token string) {
+func (c *Client) unregisterWaiter(key string) {
 	c.waitersMu.Lock()
-	delete(c.waiters, token)
+	delete(c.waiters, key)
 	c.waitersMu.Unlock()
 }
 

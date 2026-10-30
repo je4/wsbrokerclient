@@ -51,7 +51,7 @@ type Client struct {
 	subscriptions map[string][]*subscription
 	subMu         sync.RWMutex
 
-	// RPC / Request-Reply waiters correlated by event.Token
+	// RPC / Request-Reply waiters correlated by event.Session
 	waiters   map[string]chan *event.RawEvent
 	waitersMu sync.RWMutex
 

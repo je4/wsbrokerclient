@@ -2,6 +2,7 @@ package event_test
 
 import (
 	"encoding/json/v2"
+	"strings"
 	"testing"
 
 	"github.com/je4/wsbrokerclient/pkg/event"
@@ -91,12 +92,12 @@ func TestEventCreationAndSerialization(t *testing.T) {
 
 	// 6. GenericStringMessage
 	gsm := event.NewGenericStringMessage(event.TypeMessage, "hello generic")
-	evtFromData, err := event.NewEvent(gsm, "alerts", "token123")
+	evtFromData, err := event.NewEvent(gsm, "alerts", "sess123")
 	if err != nil {
 		t.Fatalf("failed to create event from DataInterface: %v", err)
 	}
-	if evtFromData.GetToken() != "token123" {
-		t.Errorf("expected token token123, got %s", evtFromData.GetToken())
+	if evtFromData.GetSession() != "sess123" {
+		t.Errorf("expected session sess123, got %s", evtFromData.GetSession())
 	}
 
 	// 7. JSON Marshal & Unmarshal of Event Envelope
@@ -175,15 +176,15 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("unexpected String representation: %s", fileMsg.String())
 	}
 
-	fileEvt, err := event.NewFileEvent("client-1", "channel-files", fileMsg, "auth-token-1")
+	fileEvt, err := event.NewFileEvent("client-1", "channel-files", fileMsg, "auth-sess-1")
 	if err != nil {
 		t.Fatalf("failed to create file event: %v", err)
 	}
 	if fileEvt.GetType() != event.TypeFile {
 		t.Errorf("expected event type %s, got %s", event.TypeFile, fileEvt.GetType())
 	}
-	if fileEvt.GetToken() != "auth-token-1" {
-		t.Errorf("expected token auth-token-1, got %s", fileEvt.GetToken())
+	if fileEvt.GetSession() != "auth-sess-1" {
+		t.Errorf("expected session auth-sess-1, got %s", fileEvt.GetSession())
 	}
 
 	// Test GetData with TypeFile
@@ -435,7 +436,7 @@ func TestEventRefIDAndReplyHelpers(t *testing.T) {
 			Source:  "client-alice",
 			Target:  "client-bob",
 			Channel: "chat-room",
-			Token:   "tok-secret",
+			Session: "sess-secret",
 		},
 	}
 	orig.SetRefID("ref-parent-0")
@@ -482,8 +483,11 @@ func TestEventRefIDAndReplyHelpers(t *testing.T) {
 	if reply.Channel != orig.Channel {
 		t.Errorf("expected reply channel %q, got %q", orig.Channel, reply.Channel)
 	}
-	if reply.Token != orig.Token {
-		t.Errorf("expected reply token %q, got %q", orig.Token, reply.Token)
+	if reply.Session != orig.Session {
+		t.Errorf("expected reply session %q, got %q", orig.Session, reply.Session)
+	}
+	if reply.GetSession() != orig.GetSession() {
+		t.Errorf("expected reply GetSession %q, got %q", orig.GetSession(), reply.GetSession())
 	}
 	replyData, err := reply.GetStringData()
 	if err != nil || replyData != "hello alice, this is bob" {
@@ -607,5 +611,63 @@ func TestGenericEventAndConversions(t *testing.T) {
 	typedEvt.SetTimestamp(now)
 	if typedEvt.GetTimestamp() != now {
 		t.Errorf("expected timestamp %v, got %v", now, typedEvt.GetTimestamp())
+	}
+}
+
+func TestEventSessionSerialization(t *testing.T) {
+	// 1. Serialization with Session
+	evt := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:      "evt-1",
+			Type:    event.TypeMessage,
+			Source:  "client-1",
+			Session: "sess-abc-123",
+		},
+	}
+	b, err := json.Marshal(evt)
+	if err != nil {
+		t.Fatalf("failed to marshal event with session: %v", err)
+	}
+	jsonStr := string(b)
+	if !strings.Contains(jsonStr, `"session":"sess-abc-123"`) {
+		t.Errorf("expected JSON to contain '\"session\":\"sess-abc-123\"', got %s", jsonStr)
+	}
+	if strings.Contains(jsonStr, `"token"`) {
+		t.Errorf("expected JSON not to contain '\"token\"', got %s", jsonStr)
+	}
+
+	// 2. Deserialization with Session
+	var unmarshaled event.RawEvent
+	if err := json.Unmarshal(b, &unmarshaled); err != nil {
+		t.Fatalf("failed to unmarshal event with session: %v", err)
+	}
+	if unmarshaled.Session != "sess-abc-123" || unmarshaled.GetSession() != "sess-abc-123" {
+		t.Errorf("expected session 'sess-abc-123', got %q (GetSession: %q)", unmarshaled.Session, unmarshaled.GetSession())
+	}
+
+	// 3. Omit empty session
+	emptySessEvt := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:     "evt-2",
+			Type:   event.TypeMessage,
+			Source: "client-2",
+		},
+	}
+	bEmpty, err := json.Marshal(emptySessEvt)
+	if err != nil {
+		t.Fatalf("failed to marshal event without session: %v", err)
+	}
+	if strings.Contains(string(bEmpty), `"session"`) {
+		t.Errorf("expected empty session to be omitted, got %s", string(bEmpty))
+	}
+
+	// 4. SetSession on Event[T]
+	typedEvt, err := event.NewEventTyped(event.TypeMessage, "client-1", "target-1", "payload")
+	if err != nil {
+		t.Fatalf("failed to create typed event: %v", err)
+	}
+	typedEvt.SetSession("sess-typed-999")
+	if typedEvt.GetSession() != "sess-typed-999" || typedEvt.Session != "sess-typed-999" {
+		t.Errorf("expected typed event session 'sess-typed-999', got %q", typedEvt.GetSession())
 	}
 }

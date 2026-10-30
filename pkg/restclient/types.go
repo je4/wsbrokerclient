@@ -14,7 +14,7 @@ type PublishRequest struct {
 	Source  string         `json:"source"`
 	Target  string         `json:"target,omitempty"`
 	Type    string         `json:"type"`
-	Token   string         `json:"token,omitempty"`
+	Session string         `json:"session,omitempty"`
 	Data    jsontext.Value `json:"data,omitempty"`
 	Message string         `json:"message,omitempty"`
 }

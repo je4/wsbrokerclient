@@ -102,16 +102,16 @@ func (c *Client) handleIncomingEvent(evt *event.RawEvent) {
 		return
 	}
 
-	// Dispatch to correlation token / RefID waiters
-	if evt.Token != "" {
+	// Dispatch to correlation session / RefID waiters
+	if evt.Session != "" {
 		c.waitersMu.RLock()
-		ch, found := c.waiters[evt.Token]
+		ch, found := c.waiters[evt.Session]
 		c.waitersMu.RUnlock()
 		if found {
 			select {
 			case ch <- evt:
 			default:
-				c.logger.Warn().Str("token", evt.Token).Msg("waiter channel blocked or full")
+				c.logger.Warn().Str("session", evt.Session).Msg("waiter channel blocked or full")
 			}
 		}
 	}

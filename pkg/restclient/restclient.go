@@ -185,13 +185,13 @@ func (c *RESTClient) Publish(ctx context.Context, evt *event.RawEvent) (*Publish
 	}
 
 	req := PublishRequest{
-		ID:     evt.ID,
-		RefID:  evt.RefID,
-		Source: evt.Source,
-		Target: evt.Target,
-		Type:   string(evt.Type),
-		Token:  evt.Token,
-		Data:   evt.Data,
+		ID:      evt.ID,
+		RefID:   evt.RefID,
+		Source:  evt.Source,
+		Target:  evt.Target,
+		Type:    string(evt.Type),
+		Session: evt.Session,
+		Data:    evt.Data,
 	}
 
 	var resp PublishResponse

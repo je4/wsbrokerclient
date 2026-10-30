@@ -53,7 +53,7 @@ func NewEventTyped[T any](eventType EventType, source, target string, data T) (*
 }
 
 // NewEvent constructs a new RawEvent instance by JSON-serializing the given DataInterface.
-func NewEvent(data DataInterface, target string, token string) (*RawEvent, error) {
+func NewEvent(data DataInterface, target string, session string) (*RawEvent, error) {
 	if data == nil {
 		return nil, errors.New("event data cannot be nil")
 	}
@@ -63,10 +63,10 @@ func NewEvent(data DataInterface, target string, token string) (*RawEvent, error
 	}
 	return &RawEvent{
 		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   data.Type(),
-			Target: target,
-			Token:  token,
+			ID:      GenerateEventID(),
+			Type:    data.Type(),
+			Target:  target,
+			Session: session,
 		},
 		Data: jsonStr,
 	}, nil
@@ -90,13 +90,13 @@ func NewMessageEvent(source, target string, data any) (*RawEvent, error) {
 }
 
 // NewFileEvent creates a RawEvent of type TypeFile carrying a FileMessage payload.
-func NewFileEvent(source, target string, file *FileMessage, token ...string) (*RawEvent, error) {
+func NewFileEvent(source, target string, file *FileMessage, session ...string) (*RawEvent, error) {
 	if file == nil {
 		return nil, errors.New("file message cannot be nil")
 	}
-	var tok string
-	if len(token) > 0 {
-		tok = token[0]
+	var sess string
+	if len(session) > 0 {
+		sess = session[0]
 	}
 	raw, err := json.Marshal(file)
 	if err != nil {
@@ -104,11 +104,11 @@ func NewFileEvent(source, target string, file *FileMessage, token ...string) (*R
 	}
 	return &RawEvent{
 		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeFile,
-			Source: source,
-			Target: target,
-			Token:  tok,
+			ID:      GenerateEventID(),
+			Type:    TypeFile,
+			Source:  source,
+			Target:  target,
+			Session: sess,
 		},
 		Data: raw,
 	}, nil

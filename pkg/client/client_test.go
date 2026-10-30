@@ -1019,17 +1019,17 @@ func TestClient_RequestReply(t *testing.T) {
 		t.Errorf("expected 'echo:hello-world', got '%s'", respMsg)
 	}
 
-	// 2. Request with explicit token
-	customToken := "custom-token-12345"
-	reqEvt2, _ := event.NewMessageEvent("", "responder", "custom-token-test")
-	reqEvt2.Token = customToken
+	// 2. Request with explicit session
+	customSession := "custom-session-12345"
+	reqEvt2, _ := event.NewMessageEvent("", "responder", "custom-session-test")
+	reqEvt2.Session = customSession
 
 	resp2, err := cli1.Request(ctx, reqEvt2)
 	if err != nil {
-		t.Fatalf("Request with explicit token failed: %v", err)
+		t.Fatalf("Request with explicit session failed: %v", err)
 	}
-	if resp2.Token != customToken {
-		t.Errorf("expected token '%s', got '%s'", customToken, resp2.Token)
+	if resp2.Session != customSession {
+		t.Errorf("expected session '%s', got '%s'", customSession, resp2.Session)
 	}
 
 	// 3. Request timeout
@@ -1041,13 +1041,13 @@ func TestClient_RequestReply(t *testing.T) {
 		t.Error("expected timeout error for non-existent target, got nil")
 	}
 
-	// 4. GenerateToken verification
-	tok, err := client.GenerateToken()
+	// 4. GenerateSessionID verification
+	sessID, err := client.GenerateSessionID()
 	if err != nil {
-		t.Fatalf("GenerateToken failed: %v", err)
+		t.Fatalf("GenerateSessionID failed: %v", err)
 	}
-	if len(tok) != 32 { // 16 bytes hex-encoded = 32 chars
-		t.Errorf("expected 32 character hex token, got %d chars: %s", len(tok), tok)
+	if len(sessID) != 32 { // 16 bytes hex-encoded = 32 chars
+		t.Errorf("expected 32 character hex session ID, got %d chars: %s", len(sessID), sessID)
 	}
 }
 

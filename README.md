@@ -43,7 +43,7 @@
 - **Intelligent Auto-Reconnection:** Built-in connection supervisor with jittered exponential backoff and transparent channel resubscription upon network restore.
 - **Dynamic Pub/Sub & Stream Subscriptions:** Join/leave channels dynamically, consume channel events via Go channels (`Subscription.Events()`), or register target/type-specific handlers.
 - **Direct Point-to-Point Messaging:** Send targeted events directly to specific connected clients.
-- **Request-Response & RPC Patterns:** Synchronous 1:1 RPC (`Request`/`Request1`), fire-and-forget (`Request0`), and multi-response streaming (`RequestN`) with correlation via `RefID` and correlation tokens.
+- **Request-Response & RPC Patterns:** Synchronous 1:1 RPC (`Request`/`Request1`), fire-and-forget (`Request0`), and multi-response streaming (`RequestN`) with correlation via `RefID` and correlation sessions.
 - **NTP Time Synchronization:** Accurate clock offset measurement and synchronized time over WebSocket connections.
 - **Automatic Heartbeat Management:** Responds to server pings with standard pong envelopes and sends periodic client-side keepalive pings.
 - **RESTful Client Included:** Full HTTP client implementation for WSBroker REST management endpoints (`/api/v1/publish`, `/api/v1/channels`, `/api/v1/clients`, etc.).
@@ -383,7 +383,7 @@ err := cli.Broadcast(ctx, "events", map[string]any{
 
 ### Request-Response & RPC Patterns
 
-WSBrokerClient provides built-in correlation mechanisms for synchronous and streaming Request-Response workflows over asynchronous WebSocket connections. Responses are correlated either by matching the response's `RefID` to the request's `evt.ID`, or by matching `Token`.
+WSBrokerClient provides built-in correlation mechanisms for synchronous and streaming Request-Response workflows over asynchronous WebSocket connections. Responses are correlated either by matching the response's `RefID` to the request's `evt.ID`, or by matching `Session`.
 
 #### API Methods Overview
 
@@ -392,7 +392,7 @@ WSBrokerClient provides built-in correlation mechanisms for synchronous and stre
 | `cli.Request(ctx, evt)` / `cli.Request1(ctx, evt)` | Synchronous (1:1) | Generates `evt.ID` (if missing), sends the event, and blocks until a single correlated response arrives or `ctx` expires. |
 | `cli.Request0(ctx, evt)` | Fire-and-Forget | Generates `evt.ID` (if missing) and sends the event immediately without registering waiters or waiting for responses. |
 | `cli.RequestN(ctx, evt, numResults, ch)` | Multi-Response Streaming | Sends `evt`, streams up to `numResults` correlated incoming responses into `ch`, and returns when all responses are collected or `ctx` expires. |
-| `cli.Reply(ctx, reqEvt, data)` | Responder Helper | Creates a correlated reply event (`RefID = reqEvt.ID`, preserving `reqEvt.Token`) and sends it back to `reqEvt.Source`. |
+| `cli.Reply(ctx, reqEvt, data)` | Responder Helper | Creates a correlated reply event (`RefID = reqEvt.ID`, preserving `reqEvt.Session`) and sends it back to `reqEvt.Source`. |
 | `cli.ReplyType(ctx, reqEvt, type, data)` | Responder Helper | Same as `Reply()`, but allows specifying a custom `EventType`. |
 
 #### Usage Examples
@@ -432,7 +432,7 @@ cli.OnDirect(func(evt *wsbrokerclient.Event) {
 	var query string
 	_ = evt.UnmarshalData(&query)
 
-	// Reply automatically preserves RefID = evt.ID and correlation tokens
+	// Reply automatically preserves RefID = evt.ID and correlation sessions
 	_ = cli.Reply(ctx, evt, "result-for-"+query)
 })
 ```

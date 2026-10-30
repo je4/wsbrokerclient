@@ -10,8 +10,6 @@ const (
 	TypeDetach EventType = "detach"
 	// TypeMessage represents a standard message carrying a data payload.
 	TypeMessage EventType = "message"
-	// TypeStringMessage is an alias for TypeMessage for string payloads.
-	TypeStringMessage EventType = "message"
 	// TypeFile represents a binary file payload with attached metadata.
 	TypeFile EventType = "file"
 	// TypePing represents a ping heartbeat or health-check event.
