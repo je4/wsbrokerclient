@@ -24,6 +24,8 @@
 - [Core Usage Guide](#core-usage-guide)
   - [Dynamic Channel Subscriptions & Streaming](#dynamic-channel-subscriptions--streaming)
   - [Event Handlers & Callbacks](#event-handlers--callbacks)
+  - [Generic Strongly-Typed Listeners & Subscriptions](#generic-strongly-typed-listeners--subscriptions)
+  - [Custom Domain Events & Type Registry](#custom-domain-events--type-registry)
   - [Direct Client-to-Client Messaging](#direct-client-to-client-messaging)
   - [Publishing & Broadcasting](#publishing--broadcasting)
   - [Request-Response & RPC Patterns](#request-response--rpc-patterns)
@@ -41,7 +43,8 @@
 - **High-Performance WebSocket Engine:** Powered by [`coder/websocket`](https://github.com/coder/websocket) with concurrent-safe write synchronization and context-aware timeouts.
 - **Enterprise mTLS Security:** Full integration with `go.ub.unibas.ch/cloud/certloader/v2` supporting dynamic hot-reloading of client certificates, MiniVault PKI, local file pairs, environment variables, or standard Go `*tls.Config`.
 - **Intelligent Auto-Reconnection:** Built-in connection supervisor with jittered exponential backoff and transparent channel resubscription upon network restore.
-- **Dynamic Pub/Sub & Stream Subscriptions:** Join/leave channels dynamically, consume channel events via Go channels (`Subscription.Events()`), or register target/type-specific handlers.
+- **Dynamic Pub/Sub & Stream Subscriptions:** Join/leave channels dynamically, consume channel events via Go channels (`Subscription.Events()`, `SubscribeTyped`), or register target/type-specific handlers.
+- **Custom Domain Events & Generics:** Thread-safe payload type registry and generic helpers (`OnTyped[T]`, `SubscribeTyped[T]`, `ToTyped[T]`) for type-safe message handling without reflection overhead.
 - **Direct Point-to-Point Messaging:** Send targeted events directly to specific connected clients.
 - **Request-Response & RPC Patterns:** Synchronous 1:1 RPC (`Request`/`Request1`), fire-and-forget (`Request0`), and multi-response streaming (`RequestN`) with correlation via `RefID` and correlation sessions.
 - **NTP Time Synchronization:** Accurate clock offset measurement and synchronized time over WebSocket connections.
@@ -338,13 +341,15 @@ _ = cli.Detach(ctx, "billing")
 
 ```go
 // Listen to all messages targeted to "alerts" channel
-cli.OnChannel("alerts", func(evt *wsbrokerclient.Event) {
-	fmt.Println("Alert received:", evt)
+cli.OnChannel("alerts", func(evt *wsbrokerclient.RawEvent) {
+	fmt.Println("Alert received:", evt.String())
 })
 
 // Listen to direct messages sent to this client
-cli.OnDirect(func(evt *wsbrokerclient.Event) {
-	fmt.Printf("Direct message from %s: %s\n", evt.Source, evt.Data)
+cli.OnDirect(func(evt *wsbrokerclient.RawEvent) {
+	var msg string
+	_ = evt.UnmarshalData(&msg)
+	fmt.Printf("Direct message from %s: %s\n", evt.Source, msg)
 })
 
 // Connection lifecycle callbacks
@@ -359,6 +364,83 @@ cli.OnDisconnect(func(err error) {
 cli.OnReconnect(func() {
 	fmt.Println("Successfully reconnected and re-subscribed!")
 })
+```
+
+### Generic Strongly-Typed Listeners & Subscriptions
+
+For type-safe message handling, WSBrokerClient offers generic helper functions that automatically decode incoming `RawEvent` JSON payloads into strongly-typed `*wsbrokerclient.Event[T]` structures.
+
+```go
+type SensorTelemetry struct {
+	DeviceID    string  `json:"device_id"`
+	Temperature float64 `json:"temperature"`
+	Humidity    float64 `json:"humidity"`
+}
+
+// 1. Strongly-typed listener by EventType with optional error handler
+unsub := wsbrokerclient.OnTyped[SensorTelemetry](cli, "sensor/telemetry", func(evt *wsbrokerclient.Event[SensorTelemetry]) {
+	fmt.Printf("[%s] Temp: %.1f°C, Humidity: %.1f%%\n", evt.Data.DeviceID, evt.Data.Temperature, evt.Data.Humidity)
+}, func(raw *wsbrokerclient.RawEvent, err error) {
+	log.Printf("Failed to unmarshal telemetry event: %v", err)
+})
+defer unsub()
+
+// 2. Strongly-typed channel listener
+_ = wsbrokerclient.OnChannelTyped[SensorTelemetry](cli, "telemetry", func(evt *wsbrokerclient.Event[SensorTelemetry]) {
+	fmt.Printf("Channel telemetry: %+v\n", evt.Data)
+})
+
+// 3. Strongly-typed streaming subscription
+sub, err := wsbrokerclient.SubscribeTyped[SensorTelemetry](ctx, cli, "telemetry")
+if err != nil {
+	log.Fatal(err)
+}
+defer sub.Unsubscribe()
+
+for evt := range sub.Events() {
+	fmt.Printf("Streamed event: %+v\n", evt.Data)
+}
+```
+
+### Custom Domain Events & Type Registry
+
+WSBrokerClient includes a thread-safe global payload registry (`RegisterPayload[T]`) allowing applications to register domain-specific payload structs associated with custom `EventType` identifiers.
+
+When receiving dynamic events via `raw.GetData()` or `wsbrokerclient.UnmarshalDynamic(raw)`, the client automatically unmarshals into the registered Go struct without reflection overhead.
+
+```go
+package rfidclient
+
+import "github.com/je4/wsbrokerclient"
+
+const TypeTagRead wsbrokerclient.EventType = "rfid/tag_read"
+
+type TagReadData struct {
+	EPC     string  `json:"epc"`
+	RSSI    float64 `json:"rssi"`
+	Antenna int     `json:"antenna"`
+}
+
+func init() {
+	// Register TagReadData for automatic dynamic unmarshaling (panics on duplicates)
+	wsbrokerclient.RegisterPayload[TagReadData](TypeTagRead)
+}
+
+// In event handler:
+func HandleIncomingEvent(raw *wsbrokerclient.RawEvent) {
+	data, err := raw.GetData()
+	if err != nil {
+		log.Printf("Failed to decode data: %v", err)
+		return
+	}
+
+	switch v := data.(type) {
+	case *TagReadData:
+		fmt.Printf("RFID Tag Read: EPC=%s RSSI=%.1f\n", v.EPC, v.RSSI)
+	default:
+		fmt.Printf("Other payload: %v\n", v)
+	}
+}
 ```
 
 ### Direct Client-to-Client Messaging
@@ -417,7 +499,7 @@ _ = cli.Request0(ctx, reqEvt)
 // 3. Multi-Response Streaming (RequestN)
 // Query multiple workers across a channel and collect up to N correlated responses
 broadcastReq, _ := wsbrokerclient.NewMessageEvent("", "cluster-workers", "ping_all")
-respCh := make(chan *wsbrokerclient.Event, 5)
+respCh := make(chan *wsbrokerclient.RawEvent, 5)
 
 // RequestN streams up to 3 responses into respCh or returns on ctx timeout
 go func() {
@@ -428,7 +510,7 @@ go func() {
 }()
 
 // 4. Replying to a Request
-cli.OnDirect(func(evt *wsbrokerclient.Event) {
+cli.OnDirect(func(evt *wsbrokerclient.RawEvent) {
 	var query string
 	_ = evt.UnmarshalData(&query)
 

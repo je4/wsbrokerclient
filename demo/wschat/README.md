@@ -121,7 +121,7 @@ c.client.OnError(func(err error) {
 Incoming messages from all subscribed channels are received via `OnMessage`:
 
 ```go
-c.client.OnMessage(func(evt *event.Event) {
+c.client.OnMessage(func(evt *event.RawEvent) {
     channel := evt.Target
     if channel == "" {
         channel = evt.Source
