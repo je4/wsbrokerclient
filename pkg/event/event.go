@@ -133,7 +133,10 @@ func (e *BaseEvent) GetTarget() string {
 	if e == nil {
 		return ""
 	}
-	return e.Target
+	if e.Target != "" {
+		return e.Target
+	}
+	return e.Channel
 }
 
 // GetSession returns the optional session/correlation identifier.
@@ -393,6 +396,7 @@ func (e *Event[T]) GetStringData() (string, error) {
 // The created event sets:
 // - ID: a newly generated unique identifier
 // - RefID: the ID of event e
+// - Source: e.Target (or e.Channel if e.Target is empty)
 // - Target: e.Source (or e.Channel if e.Source is empty)
 // - Channel: e.Channel (if present)
 // - Session: e.Session (if present)
@@ -413,11 +417,16 @@ func (e *BaseEvent) CreateReply(replyType EventType, data any) (*RawEvent, error
 	if target == "" {
 		target = e.Target
 	}
+	source := e.Target
+	if source == "" {
+		source = e.Channel
+	}
 	reply := &RawEvent{
 		BaseEvent: BaseEvent{
 			ID:      GenerateEventID(),
 			RefID:   e.ID,
 			Type:    replyType,
+			Source:  source,
 			Target:  target,
 			Channel: e.Channel,
 			Session: e.Session,

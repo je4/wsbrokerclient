@@ -75,7 +75,29 @@ func (c *Client) pingLoop(conn *websocket.Conn) {
 	}
 }
 
+func (c *Client) normalizeIncomingEvent(evt *event.RawEvent) {
+	if evt == nil {
+		return
+	}
+
+	// 1. If Target is empty, the recipient is this client
+	if evt.Target == "" {
+		evt.Target = c.clientName
+	}
+
+	// 2. Reverse check: if Channel is empty and Target is a known subscribed channel
+	if evt.Channel == "" && evt.Target != "" {
+		c.channelsMu.RLock()
+		if _, exists := c.channels[evt.Target]; exists {
+			evt.Channel = evt.Target
+		}
+		c.channelsMu.RUnlock()
+	}
+}
+
 func (c *Client) handleIncomingEvent(evt *event.RawEvent) {
+	c.normalizeIncomingEvent(evt)
+
 	if evt.Channel != "" && evt.ID != "" {
 		c.logger.Debug().Msgf("received event %s [%s -> %s (channel: %s, id: %s)]", evt.Type, evt.Source, evt.Target, evt.Channel, evt.ID)
 	} else if evt.Channel != "" {

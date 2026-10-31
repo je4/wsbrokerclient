@@ -478,6 +478,9 @@ func TestEventRefIDAndReplyHelpers(t *testing.T) {
 	if reply.RefID != orig.ID {
 		t.Errorf("expected reply RefID %q, got %q", orig.ID, reply.RefID)
 	}
+	if reply.Source != orig.Target {
+		t.Errorf("expected reply source %q, got %q", orig.Target, reply.Source)
+	}
 	if reply.Target != orig.Source {
 		t.Errorf("expected reply target %q, got %q", orig.Source, reply.Target)
 	}
@@ -499,8 +502,38 @@ func TestEventRefIDAndReplyHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewReplyEvent failed: %v", err)
 	}
-	if replyViaFunc.RefID != orig.ID || replyViaFunc.Target != orig.Source || replyViaFunc.Type != event.TypePong {
+	if replyViaFunc.RefID != orig.ID || replyViaFunc.Source != orig.Target || replyViaFunc.Target != orig.Source || replyViaFunc.Type != event.TypePong {
 		t.Errorf("unexpected replyViaFunc: %+v", replyViaFunc)
+	}
+
+	// Test CreateReply when Target is empty (falls back to Channel for Source)
+	origWithoutTarget := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:      "evt-notarget",
+			Type:    event.TypeMessage,
+			Source:  "client-alice",
+			Channel: "channel-general",
+		},
+	}
+	replyNoTarget, err := origWithoutTarget.CreateReply(event.TypeMessage, "channel response")
+	if err != nil {
+		t.Fatalf("CreateReply failed: %v", err)
+	}
+	if replyNoTarget.Source != "channel-general" {
+		t.Errorf("expected reply source 'channel-general', got %q", replyNoTarget.Source)
+	}
+	if replyNoTarget.Target != "client-alice" {
+		t.Errorf("expected reply target 'client-alice', got %q", replyNoTarget.Target)
+	}
+
+	// Test BaseEvent.GetTarget fallback
+	evtTargetEmpty := &event.RawEvent{BaseEvent: event.BaseEvent{Channel: "alerts"}}
+	if evtTargetEmpty.GetTarget() != "alerts" {
+		t.Errorf("expected GetTarget() to return 'alerts', got %q", evtTargetEmpty.GetTarget())
+	}
+	evtTargetFilled := &event.RawEvent{BaseEvent: event.BaseEvent{Target: "client-x", Channel: "alerts"}}
+	if evtTargetFilled.GetTarget() != "client-x" {
+		t.Errorf("expected GetTarget() to return 'client-x', got %q", evtTargetFilled.GetTarget())
 	}
 
 	// 5. Response events with RefID

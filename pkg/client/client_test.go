@@ -1612,3 +1612,177 @@ func TestClient_RequestTypedAndPayload(t *testing.T) {
 		t.Errorf("unexpected RequestPayload response: %+v", typedResp2.Data)
 	}
 }
+
+func TestClient_NormalizeIncomingEvent(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 1. Client attached to single channel
+	cliSingleChan, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("single-chan-client"),
+		client.WithInitialChannels("single-room"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cliSingleChan.Close()
+	if err := cliSingleChan.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+
+	getConn := func(name string) *websocket.Conn {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			mockServer.mu.Lock()
+			conn := mockServer.connections[name]
+			mockServer.mu.Unlock()
+			if conn != nil {
+				return conn
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return nil
+	}
+
+	connSingle := getConn("single-chan-client")
+	if connSingle == nil {
+		t.Fatal("expected mockServer connection for single-chan-client")
+	}
+
+	// Case A: Event with Target="" and Channel="my-chan" -> Target normalized to "my-chan"
+	var receivedA atomic.Pointer[event.RawEvent]
+	cliSingleChan.OnEvent(func(evt *event.RawEvent) {
+		if evt.ID == "evt-norm-a" {
+			receivedA.Store(evt)
+		}
+	})
+
+	evtA := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:      "evt-norm-a",
+			Type:    event.TypeMessage,
+			Source:  "sender",
+			Channel: "custom-chan",
+		},
+		Data: []byte(`"msg-a"`),
+	}
+	_ = wsjson.Write(ctx, connSingle, evtA)
+
+	// Case B: Event with Target="" and Channel="" -> Normalized to single channel "single-room"
+	var receivedB atomic.Pointer[event.RawEvent]
+	cliSingleChan.OnEvent(func(evt *event.RawEvent) {
+		if evt.ID == "evt-norm-b" {
+			receivedB.Store(evt)
+		}
+	})
+
+	evtB := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:     "evt-norm-b",
+			Type:   event.TypeMessage,
+			Source: "sender",
+		},
+		Data: []byte(`"msg-b"`),
+	}
+	_ = wsjson.Write(ctx, connSingle, evtB)
+
+	// Case C: Event with Channel="" and Target="single-room" -> Channel normalized to "single-room"
+	var receivedC atomic.Pointer[event.RawEvent]
+	cliSingleChan.OnEvent(func(evt *event.RawEvent) {
+		if evt.ID == "evt-norm-c" {
+			receivedC.Store(evt)
+		}
+	})
+
+	evtC := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:     "evt-norm-c",
+			Type:   event.TypeMessage,
+			Source: "sender",
+			Target: "single-room",
+		},
+		Data: []byte(`"msg-c"`),
+	}
+	_ = wsjson.Write(ctx, connSingle, evtC)
+
+	// 2. Client with no channels: Target="" and Channel="" -> Target normalized to clientName
+	cliNoChan, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("no-chan-client"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cliNoChan.Close()
+	if err := cliNoChan.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+
+	connNoChan := getConn("no-chan-client")
+	if connNoChan == nil {
+		t.Fatal("expected mockServer connection for no-chan-client")
+	}
+
+	var receivedD atomic.Pointer[event.RawEvent]
+	cliNoChan.OnEvent(func(evt *event.RawEvent) {
+		if evt.ID == "evt-norm-d" {
+			receivedD.Store(evt)
+		}
+	})
+
+	evtD := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:     "evt-norm-d",
+			Type:   event.TypeMessage,
+			Source: "sender",
+		},
+		Data: []byte(`"msg-d"`),
+	}
+	_ = wsjson.Write(ctx, connNoChan, evtD)
+
+	// Wait and verify
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if receivedA.Load() != nil && receivedB.Load() != nil && receivedC.Load() != nil && receivedD.Load() != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	resA := receivedA.Load()
+	if resA == nil {
+		t.Fatal("never received evtA")
+	}
+	if resA.Target != "custom-chan" || resA.Channel != "custom-chan" {
+		t.Errorf("resA expected Target 'custom-chan', got Target=%q Channel=%q", resA.Target, resA.Channel)
+	}
+
+	resB := receivedB.Load()
+	if resB == nil {
+		t.Fatal("never received evtB")
+	}
+	if resB.Target != "single-room" || resB.Channel != "single-room" {
+		t.Errorf("resB expected Target 'single-room' and Channel 'single-room', got Target=%q Channel=%q", resB.Target, resB.Channel)
+	}
+
+	resC := receivedC.Load()
+	if resC == nil {
+		t.Fatal("never received evtC")
+	}
+	if resC.Channel != "single-room" || resC.Target != "single-room" {
+		t.Errorf("resC expected Target 'single-room' and Channel 'single-room', got Target=%q Channel=%q", resC.Target, resC.Channel)
+	}
+
+	resD := receivedD.Load()
+	if resD == nil {
+		t.Fatal("never received evtD")
+	}
+	if resD.Target != "no-chan-client" {
+		t.Errorf("resD expected Target 'no-chan-client', got %q", resD.Target)
+	}
+}
