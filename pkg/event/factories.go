@@ -127,9 +127,10 @@ func NewMessageEvent(source, target string, data any) (*RawEvent, error) {
 }
 
 // NewReplyEvent creates a response RawEvent correlating to original with the given replyType and data.
-func NewReplyEvent(original *RawEvent, replyType EventType, data any) (*RawEvent, error) {
+// An optional source string can be provided to explicitly set the sender identity.
+func NewReplyEvent(original *RawEvent, replyType EventType, data any, source ...string) (*RawEvent, error) {
 	if original == nil {
 		return nil, errors.New("original event cannot be nil")
 	}
-	return original.CreateReply(replyType, data)
+	return original.CreateReply(replyType, data, source...)
 }

@@ -80,9 +80,9 @@ func (c *Client) normalizeIncomingEvent(evt *event.RawEvent) {
 		return
 	}
 
-	// 1. If Target is empty, the recipient is this client
-	if evt.Target == "" {
-		evt.Target = c.clientName
+	// 1. If Target is empty but Channel is present, Target is the Channel
+	if evt.Target == "" && evt.Channel != "" {
+		evt.Target = evt.Channel
 	}
 
 	// 2. Reverse check: if Channel is empty and Target is a known subscribed channel
@@ -92,6 +92,27 @@ func (c *Client) normalizeIncomingEvent(evt *event.RawEvent) {
 			evt.Channel = evt.Target
 		}
 		c.channelsMu.RUnlock()
+	}
+
+	// 3. If neither Target nor Channel is set:
+	// If the client is subscribed to exactly 1 channel, associate with that channel.
+	// Otherwise, default Target to this client's name (direct point-to-point message).
+	if evt.Target == "" && evt.Channel == "" {
+		c.channelsMu.RLock()
+		if len(c.channels) == 1 {
+			for singleChan := range c.channels {
+				evt.Target = singleChan
+				evt.Channel = singleChan
+			}
+		} else {
+			evt.Target = c.clientName
+		}
+		c.channelsMu.RUnlock()
+	}
+
+	// 4. Fallback guarantee: Target must never be empty
+	if evt.Target == "" {
+		evt.Target = c.clientName
 	}
 }
 

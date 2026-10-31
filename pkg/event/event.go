@@ -277,11 +277,12 @@ func (e *Event[T]) SetTimestamp(t time.Time) {
 }
 
 // CreateReply creates a response RawEvent correlating to event e.
-func (e *Event[T]) CreateReply(replyType EventType, data any) (*RawEvent, error) {
+// An optional source string can be provided to explicitly set the sender identity.
+func (e *Event[T]) CreateReply(replyType EventType, data any, source ...string) (*RawEvent, error) {
 	if e == nil {
 		return nil, errors.New("cannot create reply from nil event")
 	}
-	return e.BaseEvent.CreateReply(replyType, data)
+	return e.BaseEvent.CreateReply(replyType, data, source...)
 }
 
 // GetData unmarshals the JSON payload into either a registered concrete type,
@@ -396,13 +397,13 @@ func (e *Event[T]) GetStringData() (string, error) {
 // The created event sets:
 // - ID: a newly generated unique identifier
 // - RefID: the ID of event e
-// - Source: e.Target (or e.Channel if e.Target is empty)
+// - Source: explicit source parameter if provided, otherwise e.Target (or e.Channel if e.Target is empty)
 // - Target: e.Source (or e.Channel if e.Source is empty)
 // - Channel: e.Channel (if present)
 // - Session: e.Session (if present)
 // - Type: replyType
 // - Data: JSON-marshaled payload of data
-func (e *BaseEvent) CreateReply(replyType EventType, data any) (*RawEvent, error) {
+func (e *BaseEvent) CreateReply(replyType EventType, data any, source ...string) (*RawEvent, error) {
 	if e == nil {
 		return nil, errors.New("cannot create reply from nil event")
 	}
@@ -417,16 +418,20 @@ func (e *BaseEvent) CreateReply(replyType EventType, data any) (*RawEvent, error
 	if target == "" {
 		target = e.Target
 	}
-	source := e.Target
-	if source == "" {
-		source = e.Channel
+	src := ""
+	if len(source) > 0 && source[0] != "" {
+		src = source[0]
+	} else if e.Target != "" {
+		src = e.Target
+	} else {
+		src = e.Channel
 	}
 	reply := &RawEvent{
 		BaseEvent: BaseEvent{
 			ID:      GenerateEventID(),
 			RefID:   e.ID,
 			Type:    replyType,
-			Source:  source,
+			Source:  src,
 			Target:  target,
 			Channel: e.Channel,
 			Session: e.Session,

@@ -65,6 +65,14 @@ func (c *Client) SendMessage(ctx context.Context, target string, data any) error
 	return c.Send(ctx, evt)
 }
 
+// CreateReply creates a response RawEvent correlating to originalEvt with this client's name as Source.
+func (c *Client) CreateReply(originalEvt *event.RawEvent, replyType event.EventType, data any) (*event.RawEvent, error) {
+	if originalEvt == nil {
+		return nil, errors.New("cannot reply to nil event")
+	}
+	return originalEvt.CreateReply(replyType, data, c.clientName)
+}
+
 // Reply sends a correlated TypeMessage response event to originalEvt carrying data payload.
 func (c *Client) Reply(ctx context.Context, originalEvt *event.RawEvent, data any) error {
 	return c.ReplyType(ctx, originalEvt, event.TypeMessage, data)
@@ -72,14 +80,10 @@ func (c *Client) Reply(ctx context.Context, originalEvt *event.RawEvent, data an
 
 // ReplyType sends a correlated response event of the specified replyType to originalEvt.
 func (c *Client) ReplyType(ctx context.Context, originalEvt *event.RawEvent, replyType event.EventType, data any) error {
-	if originalEvt == nil {
-		return errors.New("cannot reply to nil event")
-	}
-	replyEvt, err := originalEvt.CreateReply(replyType, data)
+	replyEvt, err := c.CreateReply(originalEvt, replyType, data)
 	if err != nil {
 		return err
 	}
-	replyEvt.Source = c.clientName
 	return c.Send(ctx, replyEvt)
 }
 
