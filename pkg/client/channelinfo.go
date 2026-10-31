@@ -20,7 +20,7 @@ func (c *Client) QueryChannelInfo(ctx context.Context, channel string) (*event.C
 		return nil, errors.New("client is not connected")
 	}
 
-	evt, err := event.NewChannelInfoQueryEvent(c.clientName, channel)
+	evt, err := event.NewRawEvent(event.TypeChannelInfoQuery, c.clientName, channel, channel)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create channel info query event")
 	}

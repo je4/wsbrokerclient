@@ -106,7 +106,7 @@ func (c *Client) Attach(ctx context.Context, channels ...string) error {
 		c.channelsMu.Unlock()
 
 		if c.IsConnected() {
-			evt, err := event.NewAttachEvent(c.clientName, ch)
+			evt, err := event.NewRawEvent(event.TypeAttach, c.clientName, ch, ch)
 			if err != nil {
 				return err
 			}
@@ -131,7 +131,7 @@ func (c *Client) Detach(ctx context.Context, channels ...string) error {
 		c.channelsMu.Unlock()
 
 		if c.IsConnected() {
-			evt, err := event.NewDetachEvent(c.clientName, ch)
+			evt, err := event.NewRawEvent(event.TypeDetach, c.clientName, ch, ch)
 			if err != nil {
 				return err
 			}
@@ -145,7 +145,7 @@ func (c *Client) Detach(ctx context.Context, channels ...string) error {
 
 // Ping sends an explicit ping request event to the server.
 func (c *Client) Ping(ctx context.Context) error {
-	evt, err := event.NewPingEvent(c.clientName)
+	evt, err := event.NewRawEvent(event.TypePing, c.clientName, "", "ping")
 	if err != nil {
 		return err
 	}

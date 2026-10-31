@@ -16,7 +16,7 @@ func (c *Client) QueryNTP(ctx context.Context, data []byte) ([]byte, error) {
 		return nil, errors.New("client is not connected")
 	}
 
-	evt, err := event.NewNTPQueryEvent(c.clientName, data)
+	evt, err := event.NewRawEvent(event.TypeNTPQuery, c.clientName, "", data)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create NTP query event")
 	}

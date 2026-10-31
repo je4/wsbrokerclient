@@ -325,7 +325,7 @@ func (c *Client) reAttachChannels() {
 	c.channelsMu.RUnlock()
 
 	for _, ch := range channels {
-		evt, err := event.NewAttachEvent(c.clientName, ch)
+		evt, err := event.NewRawEvent(event.TypeAttach, c.clientName, ch, ch)
 		if err != nil {
 			continue
 		}

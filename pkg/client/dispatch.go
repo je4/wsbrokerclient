@@ -67,7 +67,7 @@ func (c *Client) pingLoop(conn *websocket.Conn) {
 				return
 			}
 
-			pingEvt, _ := event.NewPingEvent(c.clientName)
+			pingEvt, _ := event.NewRawEvent(event.TypePing, c.clientName, "", "ping")
 			pCtx, pCancel := context.WithTimeout(c.ctx, c.config.WriteTimeout)
 			_ = c.writeEvent(pCtx, currentConn, pingEvt)
 			pCancel()
@@ -92,7 +92,11 @@ func (c *Client) handleIncomingEvent(evt *event.RawEvent) {
 		if pongTarget == "" {
 			pongTarget = "wsbroker"
 		}
-		pongEvt, _ := event.NewPongEvent(c.clientName, pongTarget, evt.Data)
+		pongData := any(evt.Data)
+		if len(evt.Data) == 0 {
+			pongData = "pong"
+		}
+		pongEvt, _ := event.NewRawEvent(event.TypePong, c.clientName, pongTarget, pongData)
 		pongEvt.RefID = evt.ID
 		go func() {
 			pCtx, pCancel := context.WithTimeout(c.ctx, c.config.WriteTimeout)

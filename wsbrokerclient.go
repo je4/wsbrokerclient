@@ -44,6 +44,15 @@ type (
 	// Subscription represents an active channel subscription stream.
 	Subscription = client.Subscription
 
+	// TypedSubscription represents an active streaming channel subscription producing strongly-typed events.
+	TypedSubscription[T any] = client.TypedSubscription[T]
+
+	// TypedEventHandler is a callback function invoked with a strongly-typed Event[T].
+	TypedEventHandler[T any] = client.TypedEventHandler[T]
+
+	// PayloadUnmarshaler defines a factory function that decodes raw JSON payload into a concrete type.
+	PayloadUnmarshaler = event.PayloadUnmarshaler
+
 	// BaseEvent encapsulates all transport, routing, and correlation metadata.
 	BaseEvent = event.BaseEvent
 
@@ -161,26 +170,47 @@ var (
 
 // Event constructors re-exported from event package.
 var (
-	NewEvent                    = event.NewEvent
-	NewMessageEvent             = event.NewMessageEvent
-	NewFileEvent                = event.NewFileEvent
-	NewFileMessage              = event.NewFileMessage
-	NewAttachEvent              = event.NewAttachEvent
-	NewDetachEvent              = event.NewDetachEvent
-	NewPingEvent                = event.NewPingEvent
-	NewPongEvent                = event.NewPongEvent
-	NewGenericStringMessage     = event.NewGenericStringMessage
-	NewNTPQueryEvent            = event.NewNTPQueryEvent
-	NewNTPResponseEvent         = event.NewNTPResponseEvent
-	NewNTPErrorEvent            = event.NewNTPErrorEvent
-	NewChannelInfoQueryEvent    = event.NewChannelInfoQueryEvent
-	NewChannelInfoResponseEvent = event.NewChannelInfoResponseEvent
-	NewChannelInfoErrorEvent    = event.NewChannelInfoErrorEvent
-	NewReplyEvent               = event.NewReplyEvent
-	NewWSMessage                = event.NewWSMessage
-	GenerateEventID             = event.GenerateEventID
-	GenerateSessionID           = client.GenerateSessionID
+	NewEvent               = event.NewEvent
+	NewMessageEvent        = event.NewMessageEvent
+	NewRawEvent            = event.NewRawEvent
+	NewFileMessage         = event.NewFileMessage
+	NewReplyEvent          = event.NewReplyEvent
+	NewWSMessage           = event.NewWSMessage
+	GenerateEventID        = event.GenerateEventID
+	GenerateSessionID      = client.GenerateSessionID
+	RegisterPayloadFactory = event.RegisterPayloadFactory
+	GetPayloadUnmarshaler  = event.GetPayloadUnmarshaler
 )
+
+// RegisterPayload associates an EventType with a concrete payload type T in the global registry.
+func RegisterPayload[T any](eventType EventType) {
+	event.RegisterPayload[T](eventType)
+}
+
+// UnmarshalDynamic unmarshals a RawEvent's data payload according to the type registry.
+func UnmarshalDynamic(raw *RawEvent) (any, error) {
+	return event.UnmarshalDynamic(raw)
+}
+
+// OnTyped registers a listener for events of a specific EventType with automatic unmarshaling into Event[T].
+func OnTyped[T any](c ClientInterface, eventType EventType, handler TypedEventHandler[T], errHandler ...func(raw *RawEvent, err error)) UnsubscribeFunc {
+	return client.OnTyped[T](c, eventType, handler, errHandler...)
+}
+
+// OnChannelTyped registers a listener for events targeted to a channel with automatic unmarshaling into Event[T].
+func OnChannelTyped[T any](c ClientInterface, channel string, handler TypedEventHandler[T], errHandler ...func(raw *RawEvent, err error)) UnsubscribeFunc {
+	return client.OnChannelTyped[T](c, channel, handler, errHandler...)
+}
+
+// OnEventTyped registers a global event listener with automatic unmarshaling into Event[T].
+func OnEventTyped[T any](c ClientInterface, handler TypedEventHandler[T], errHandler ...func(raw *RawEvent, err error)) UnsubscribeFunc {
+	return client.OnEventTyped[T](c, handler, errHandler...)
+}
+
+// SubscribeTyped returns a streaming TypedSubscription for the given channel, emitting decoded *Event[T].
+func SubscribeTyped[T any](ctx context.Context, c ClientInterface, channel string, bufferSize ...int) (TypedSubscription[T], error) {
+	return client.SubscribeTyped[T](ctx, c, channel, bufferSize...)
+}
 
 // RequestTyped sends a RawEvent request and unmarshals the correlated response payload into Resp.
 func RequestTyped[Resp any](ctx context.Context, c ClientInterface, evt *RawEvent) (*Event[Resp], error) {
@@ -193,8 +223,8 @@ func RequestPayload[Resp any, Req any](ctx context.Context, c ClientInterface, t
 }
 
 // ToTyped converts a RawEvent into a strongly-typed Event[T] by unmarshaling its JSON payload into T.
-func ToTyped[T any](raw *RawEvent) (*Event[T], error) {
-	return event.ToTyped[T](raw)
+func ToTyped[T any](raw *RawEvent, expectedTypes ...EventType) (*Event[T], error) {
+	return event.ToTyped[T](raw, expectedTypes...)
 }
 
 // ToRaw converts a typed Event[T] into a RawEvent by JSON-marshaling its payload into jsontext.Value.

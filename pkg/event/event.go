@@ -281,7 +281,8 @@ func (e *Event[T]) CreateReply(replyType EventType, data any) (*RawEvent, error)
 	return e.BaseEvent.CreateReply(replyType, data)
 }
 
-// GetData unmarshals the JSON payload into either a primitive string, raw bytes (for NTP events), or generic JSON structure.
+// GetData unmarshals the JSON payload into either a registered concrete type,
+// a primitive string, or a generic JSON map/slice structure.
 func (e *Event[T]) GetData() (any, error) {
 	if e == nil {
 		return nil, nil
@@ -291,22 +292,8 @@ func (e *Event[T]) GetData() (any, error) {
 		if len(d) == 0 {
 			return nil, nil
 		}
-		switch e.Type {
-		case TypeNTPQuery, TypeNTPResponse, TypeNTPError:
-			var raw []byte
-			if err := json.Unmarshal(d, &raw); err == nil {
-				return raw, nil
-			}
-		case TypeFile:
-			var fm FileMessage
-			if err := json.Unmarshal(d, &fm); err == nil {
-				return &fm, nil
-			}
-		case TypeChannelInfoResponse:
-			var ci ChannelInfo
-			if err := json.Unmarshal(d, &ci); err == nil {
-				return &ci, nil
-			}
+		if unmarshaler, ok := GetPayloadUnmarshaler(e.Type); ok {
+			return unmarshaler(d)
 		}
 		var msg string
 		if err := json.Unmarshal(d, &msg); err == nil {
@@ -444,22 +431,12 @@ func marshalPayload(data any) (jsontext.Value, error) {
 	if data == nil {
 		return nil, nil
 	}
-	switch v := data.(type) {
-	case jsontext.Value:
-		return v, nil
-	case []byte:
-		return jsontext.Value(v), nil
-	case string:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return nil, errors.Wrapf(err, "cannot marshal string data: %v", v)
-		}
-		return b, nil
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return nil, errors.Wrapf(err, "cannot marshal event data: %v", data)
-		}
-		return b, nil
+	if raw, ok := data.(jsontext.Value); ok {
+		return raw, nil
 	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal event data: %v", data)
+	}
+	return jsontext.Value(b), nil
 }

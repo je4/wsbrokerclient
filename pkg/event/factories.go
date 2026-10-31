@@ -1,17 +1,45 @@
 package event
 
 import (
-	"encoding/json/jsontext"
 	"encoding/json/v2"
 
 	"emperror.dev/errors"
 )
 
 // ToTyped converts a RawEvent into a strongly-typed Event[T] by unmarshaling its JSON payload into T.
-func ToTyped[T any](raw *RawEvent) (*Event[T], error) {
+// If expectedTypes are specified, it verifies that raw.Type matches one of them before unmarshaling.
+// If T implements DataInterface, it verifies that raw.Type matches the DataInterface's Type().
+func ToTyped[T any](raw *RawEvent, expectedTypes ...EventType) (*Event[T], error) {
 	if raw == nil {
 		return nil, errors.New("cannot convert nil raw event to typed event")
 	}
+
+	// 1. Check against explicitly expected EventTypes if provided
+	if len(expectedTypes) > 0 {
+		matched := false
+		for _, et := range expectedTypes {
+			if raw.Type == et {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return nil, errors.Errorf("event type mismatch: expected %v, but got %q", expectedTypes, raw.Type)
+		}
+	}
+
+	// 2. Check DataInterface compatibility (e.g. FileMessage, etc.)
+	var zero T
+	if di, ok := any(zero).(DataInterface); ok {
+		if expectedType := di.Type(); expectedType != "" && expectedType != raw.Type {
+			return nil, errors.Errorf("event type mismatch: payload %T expects type %q, got %q", zero, expectedType, raw.Type)
+		}
+	} else if di, ok := any(&zero).(DataInterface); ok {
+		if expectedType := di.Type(); expectedType != "" && expectedType != raw.Type {
+			return nil, errors.Errorf("event type mismatch: payload %T expects type %q, got %q", zero, expectedType, raw.Type)
+		}
+	}
+
 	var data T
 	if len(raw.Data) > 0 {
 		if err := json.Unmarshal(raw.Data, &data); err != nil {
@@ -52,28 +80,8 @@ func NewEventTyped[T any](eventType EventType, source, target string, data T) (*
 	}, nil
 }
 
-// NewEvent constructs a new RawEvent instance by JSON-serializing the given DataInterface.
-func NewEvent(data DataInterface, target string, session string) (*RawEvent, error) {
-	if data == nil {
-		return nil, errors.New("event data cannot be nil")
-	}
-	jsonStr, err := json.Marshal(data)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal event data: %v", data)
-	}
-	return &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:      GenerateEventID(),
-			Type:    data.Type(),
-			Target:  target,
-			Session: session,
-		},
-		Data: jsonStr,
-	}, nil
-}
-
-// NewMessageEvent creates a RawEvent of type TypeMessage carrying arbitrary data as JSON payload.
-func NewMessageEvent(source, target string, data any) (*RawEvent, error) {
+// NewRawEvent constructs a new RawEvent with JSON-marshaled data payload.
+func NewRawEvent(eventType EventType, source, target string, data any) (*RawEvent, error) {
 	raw, err := marshalPayload(data)
 	if err != nil {
 		return nil, err
@@ -81,7 +89,7 @@ func NewMessageEvent(source, target string, data any) (*RawEvent, error) {
 	return &RawEvent{
 		BaseEvent: BaseEvent{
 			ID:     GenerateEventID(),
-			Type:   TypeMessage,
+			Type:   eventType,
 			Source: source,
 			Target: target,
 		},
@@ -89,245 +97,33 @@ func NewMessageEvent(source, target string, data any) (*RawEvent, error) {
 	}, nil
 }
 
-// NewFileEvent creates a RawEvent of type TypeFile carrying a FileMessage payload.
-func NewFileEvent(source, target string, file *FileMessage, session ...string) (*RawEvent, error) {
-	if file == nil {
-		return nil, errors.New("file message cannot be nil")
+// NewEvent constructs a new RawEvent instance by JSON-serializing the given DataInterface.
+func NewEvent(data DataInterface, target string, session ...string) (*RawEvent, error) {
+	if data == nil {
+		return nil, errors.New("event data cannot be nil")
+	}
+	jsonStr, err := json.Marshal(data)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot marshal event data: %v", data)
 	}
 	var sess string
 	if len(session) > 0 {
 		sess = session[0]
 	}
-	raw, err := json.Marshal(file)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal file event data: %v", file.Filename)
-	}
 	return &RawEvent{
 		BaseEvent: BaseEvent{
 			ID:      GenerateEventID(),
-			Type:    TypeFile,
-			Source:  source,
+			Type:    data.Type(),
 			Target:  target,
 			Session: sess,
 		},
-		Data: raw,
+		Data: jsonStr,
 	}, nil
 }
 
-// NewAttachEvent creates a RawEvent of type TypeAttach to subscribe to a channel.
-func NewAttachEvent(source, channel string) (*RawEvent, error) {
-	raw, err := json.Marshal(channel)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal attach channel: %s", channel)
-	}
-	return &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeAttach,
-			Source: source,
-			Target: channel,
-		},
-		Data: raw,
-	}, nil
-}
-
-// NewDetachEvent creates a RawEvent of type TypeDetach to unsubscribe from a channel.
-func NewDetachEvent(source, channel string) (*RawEvent, error) {
-	raw, err := json.Marshal(channel)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal detach channel: %s", channel)
-	}
-	return &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeDetach,
-			Source: source,
-			Target: channel,
-		},
-		Data: raw,
-	}, nil
-}
-
-// NewPingEvent creates a ping heartbeat RawEvent.
-func NewPingEvent(source string, data ...any) (*RawEvent, error) {
-	var raw jsontext.Value
-	if len(data) > 0 && data[0] != nil {
-		var err error
-		raw, err = marshalPayload(data[0])
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		raw = jsontext.Value(`"ping"`)
-	}
-	return &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypePing,
-			Source: source,
-		},
-		Data: raw,
-	}, nil
-}
-
-// NewPongEvent creates a pong heartbeat response RawEvent.
-// If an optional RefID string is passed as a subsequent argument, it is assigned to RefID.
-func NewPongEvent(source, target string, data ...any) (*RawEvent, error) {
-	var raw jsontext.Value
-	if len(data) > 0 && data[0] != nil {
-		var err error
-		raw, err = marshalPayload(data[0])
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		raw = jsontext.Value(`"pong"`)
-	}
-	evt := &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypePong,
-			Source: source,
-			Target: target,
-		},
-		Data: raw,
-	}
-	if len(data) > 1 {
-		if refStr, ok := data[1].(string); ok {
-			evt.RefID = refStr
-		}
-	}
-	return evt, nil
-}
-
-// NewNTPQueryEvent creates a RawEvent of type TypeNTPQuery with raw NTP packet bytes.
-func NewNTPQueryEvent(source string, data []byte) (*RawEvent, error) {
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal NTP query data")
-	}
-	return &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeNTPQuery,
-			Source: source,
-		},
-		Data: raw,
-	}, nil
-}
-
-// NewNTPResponseEvent creates a RawEvent of type TypeNTPResponse with raw NTP response bytes.
-// An optional refID can be passed to correlate with the query event ID.
-func NewNTPResponseEvent(source, target string, data []byte, refID ...string) (*RawEvent, error) {
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal NTP response data")
-	}
-	evt := &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeNTPResponse,
-			Source: source,
-			Target: target,
-		},
-		Data: raw,
-	}
-	if len(refID) > 0 {
-		evt.RefID = refID[0]
-	}
-	return evt, nil
-}
-
-// NewNTPErrorEvent creates a RawEvent of type TypeNTPError with an error message string.
-// An optional refID can be passed to correlate with the query event ID.
-func NewNTPErrorEvent(source, target, errMsg string, refID ...string) (*RawEvent, error) {
-	raw, err := json.Marshal(errMsg)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal NTP error message: %s", errMsg)
-	}
-	evt := &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeNTPError,
-			Source: source,
-			Target: target,
-		},
-		Data: raw,
-	}
-	if len(refID) > 0 {
-		evt.RefID = refID[0]
-	}
-	return evt, nil
-}
-
-// NewChannelInfoQueryEvent creates a RawEvent of type TypeChannelInfoQuery for querying channel metadata and members.
-// The target channel name can be passed as target (and is also stored as string data payload).
-func NewChannelInfoQueryEvent(source, target string) (*RawEvent, error) {
-	raw, err := json.Marshal(target)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal channel info query target: %s", target)
-	}
-	return &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeChannelInfoQuery,
-			Source: source,
-			Target: target,
-		},
-		Data: raw,
-	}, nil
-}
-
-// NewChannelInfoResponseEvent creates a RawEvent of type TypeChannelInfoResponse containing ChannelInfo.
-// Optional source and refID strings can be provided.
-func NewChannelInfoResponseEvent(target string, info ChannelInfo, source ...string) (*RawEvent, error) {
-	src := "wsbroker"
-	if len(source) > 0 && source[0] != "" {
-		src = source[0]
-	}
-	raw, err := json.Marshal(info)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal channel info: %v", info)
-	}
-	evt := &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeChannelInfoResponse,
-			Source: src,
-			Target: target,
-		},
-		Data: raw,
-	}
-	if len(source) > 1 {
-		evt.RefID = source[1]
-	}
-	return evt, nil
-}
-
-// NewChannelInfoErrorEvent creates a RawEvent of type TypeChannelInfoError with an error message string.
-// Optional source and refID strings can be provided.
-func NewChannelInfoErrorEvent(target, errMsg string, source ...string) (*RawEvent, error) {
-	src := "wsbroker"
-	if len(source) > 0 && source[0] != "" {
-		src = source[0]
-	}
-	raw, err := json.Marshal(errMsg)
-	if err != nil {
-		return nil, errors.Wrapf(err, "cannot marshal channel info error message: %s", errMsg)
-	}
-	evt := &RawEvent{
-		BaseEvent: BaseEvent{
-			ID:     GenerateEventID(),
-			Type:   TypeChannelInfoError,
-			Source: src,
-			Target: target,
-		},
-		Data: raw,
-	}
-	if len(source) > 1 {
-		evt.RefID = source[1]
-	}
-	return evt, nil
+// NewMessageEvent creates a RawEvent of type TypeMessage carrying arbitrary data as JSON payload.
+func NewMessageEvent(source, target string, data any) (*RawEvent, error) {
+	return NewRawEvent(TypeMessage, source, target, data)
 }
 
 // NewReplyEvent creates a response RawEvent correlating to original with the given replyType and data.
