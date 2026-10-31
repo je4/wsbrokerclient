@@ -526,6 +526,23 @@ func TestEventRefIDAndReplyHelpers(t *testing.T) {
 		t.Errorf("expected reply target 'client-alice', got %q", replyNoTarget.Target)
 	}
 
+	// Test CreateReply with explicit source override
+	replyWithExplicitSource, err := origWithoutTarget.CreateReply(event.TypeMessage, "channel response", "client-bob")
+	if err != nil {
+		t.Fatalf("CreateReply failed: %v", err)
+	}
+	if replyWithExplicitSource.Source != "client-bob" {
+		t.Errorf("expected reply source 'client-bob', got %q", replyWithExplicitSource.Source)
+	}
+
+	replyViaFuncWithSource, err := event.NewReplyEvent(origWithoutTarget, event.TypePong, "pong-data", "client-charlie")
+	if err != nil {
+		t.Fatalf("NewReplyEvent with source failed: %v", err)
+	}
+	if replyViaFuncWithSource.Source != "client-charlie" {
+		t.Errorf("expected reply source 'client-charlie', got %q", replyViaFuncWithSource.Source)
+	}
+
 	// Test BaseEvent.GetTarget fallback
 	evtTargetEmpty := &event.RawEvent{BaseEvent: event.BaseEvent{Channel: "alerts"}}
 	if evtTargetEmpty.GetTarget() != "alerts" {

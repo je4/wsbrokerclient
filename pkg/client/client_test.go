@@ -1785,4 +1785,222 @@ func TestClient_NormalizeIncomingEvent(t *testing.T) {
 	if resD.Target != "no-chan-client" {
 		t.Errorf("resD expected Target 'no-chan-client', got %q", resD.Target)
 	}
+
+	// 3. Client with multiple channels: Target="" and Channel="" -> Target normalized to clientName
+	cliMultiChan, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("multi-chan-client"),
+		client.WithInitialChannels("room1", "room2"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cliMultiChan.Close()
+	if err := cliMultiChan.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+
+	connMulti := getConn("multi-chan-client")
+	if connMulti == nil {
+		t.Fatal("expected mockServer connection for multi-chan-client")
+	}
+
+	var receivedE atomic.Pointer[event.RawEvent]
+	cliMultiChan.OnEvent(func(evt *event.RawEvent) {
+		if evt.ID == "evt-norm-e" {
+			receivedE.Store(evt)
+		}
+	})
+
+	evtE := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:     "evt-norm-e",
+			Type:   event.TypeMessage,
+			Source: "sender",
+		},
+		Data: []byte(`"msg-e"`),
+	}
+	_ = wsjson.Write(ctx, connMulti, evtE)
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if receivedE.Load() != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	resE := receivedE.Load()
+	if resE == nil {
+		t.Fatal("never received evtE")
+	}
+	if resE.Target != "multi-chan-client" {
+		t.Errorf("resE expected Target 'multi-chan-client', got %q", resE.Target)
+	}
+}
+
+func TestClient_ListenerIsolation_ChannelVsDirect(t *testing.T) {
+	mockServer := newMockBrokerServer("")
+	ts := httptest.NewServer(mockServer)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cli, err := client.New(client.DefaultConfig(),
+		client.WithEndpoint(ts.URL),
+		client.WithClientName("listener-isolation-client"),
+		client.WithInitialChannels("broadcast-room"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli.Close()
+	if err := cli.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var conn *websocket.Conn
+	for time.Now().Before(deadline) {
+		mockServer.mu.Lock()
+		conn = mockServer.connections["listener-isolation-client"]
+		mockServer.mu.Unlock()
+		if conn != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if conn == nil {
+		t.Fatal("mock server connection not found")
+	}
+
+	var directCount atomic.Int32
+	var channelCount atomic.Int32
+	var globalCount atomic.Int32
+
+	cli.OnDirect(func(evt *event.RawEvent) {
+		directCount.Add(1)
+	})
+	cli.OnChannel("broadcast-room", func(evt *event.RawEvent) {
+		channelCount.Add(1)
+	})
+	cli.OnEvent(func(evt *event.RawEvent) {
+		globalCount.Add(1)
+	})
+
+	// 1. Send channel broadcast message (Channel="broadcast-room", Target="")
+	broadcastEvt := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:      "broadcast-1",
+			Type:    event.TypeMessage,
+			Source:  "publisher",
+			Channel: "broadcast-room",
+		},
+		Data: []byte(`"hello room"`),
+	}
+	if err := wsjson.Write(ctx, conn, broadcastEvt); err != nil {
+		t.Fatalf("failed to write broadcast event: %v", err)
+	}
+
+	// Wait briefly to process broadcast
+	time.Sleep(100 * time.Millisecond)
+
+	if channelCount.Load() != 1 {
+		t.Errorf("expected channelCount 1 for broadcast, got %d", channelCount.Load())
+	}
+	if directCount.Load() != 0 {
+		t.Errorf("expected directCount 0 for broadcast, got %d (channel broadcast triggered OnDirect!)", directCount.Load())
+	}
+	if globalCount.Load() != 1 {
+		t.Errorf("expected globalCount 1 for broadcast, got %d", globalCount.Load())
+	}
+
+	// 2. Send direct point-to-point message (Target="listener-isolation-client", Channel="")
+	directEvt := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:     "direct-1",
+			Type:   event.TypeMessage,
+			Source: "caller",
+			Target: "listener-isolation-client",
+		},
+		Data: []byte(`"hello direct"`),
+	}
+	if err := wsjson.Write(ctx, conn, directEvt); err != nil {
+		t.Fatalf("failed to write direct event: %v", err)
+	}
+
+	// Wait briefly to process direct message
+	time.Sleep(100 * time.Millisecond)
+
+	if directCount.Load() != 1 {
+		t.Errorf("expected directCount 1 for direct message, got %d", directCount.Load())
+	}
+	if channelCount.Load() != 1 {
+		t.Errorf("expected channelCount to remain 1, got %d (direct message triggered OnChannel!)", channelCount.Load())
+	}
+	if globalCount.Load() != 2 {
+		t.Errorf("expected globalCount 2, got %d", globalCount.Load())
+	}
+}
+
+func TestClient_CreateReply_SetsClientSource(t *testing.T) {
+	cli, err := client.New(client.DefaultConfig(),
+		client.WithClientName("responding-client"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer cli.Close()
+
+	// 1. Direct incoming message
+	directEvt := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:     "msg-1",
+			Type:   event.TypeMessage,
+			Source: "caller-alice",
+			Target: "responding-client",
+		},
+		Data: []byte(`"hello"`),
+	}
+
+	reply, err := cli.CreateReply(directEvt, event.TypePong, "pong-response")
+	if err != nil {
+		t.Fatalf("CreateReply failed: %v", err)
+	}
+	if reply.Source != "responding-client" {
+		t.Errorf("expected reply Source to be 'responding-client', got %q", reply.Source)
+	}
+	if reply.Target != "caller-alice" {
+		t.Errorf("expected reply Target to be 'caller-alice', got %q", reply.Target)
+	}
+	if reply.RefID != "msg-1" {
+		t.Errorf("expected reply RefID to be 'msg-1', got %q", reply.RefID)
+	}
+
+	// 2. Channel broadcast incoming message
+	broadcastEvt := &event.RawEvent{
+		BaseEvent: event.BaseEvent{
+			ID:      "broadcast-2",
+			Type:    event.TypeMessage,
+			Source:  "caller-bob",
+			Channel: "room-lobby",
+			Target:  "room-lobby",
+		},
+		Data: []byte(`"broadcast announcement"`),
+	}
+
+	chanReply, err := cli.CreateReply(broadcastEvt, event.TypeMessage, "broadcast acknowledgement")
+	if err != nil {
+		t.Fatalf("CreateReply on broadcast failed: %v", err)
+	}
+	if chanReply.Source != "responding-client" {
+		t.Errorf("expected chanReply Source to be 'responding-client', got %q", chanReply.Source)
+	}
+	if chanReply.Target != "caller-bob" {
+		t.Errorf("expected chanReply Target to be 'caller-bob', got %q", chanReply.Target)
+	}
+	if chanReply.Channel != "room-lobby" {
+		t.Errorf("expected chanReply Channel to be 'room-lobby', got %q", chanReply.Channel)
+	}
 }
