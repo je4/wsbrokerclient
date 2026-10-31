@@ -52,8 +52,8 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("expected 'breaking news', got '%s'", strData)
 	}
 
-	// 3. NewAttachEvent
-	attachEvt, err := event.NewAttachEvent("client-1", "metrics")
+	// 3. NewRawEvent for Attach
+	attachEvt, err := event.NewRawEvent(event.TypeAttach, "client-1", "metrics", "metrics")
 	if err != nil {
 		t.Fatalf("failed to create attach event: %v", err)
 	}
@@ -64,8 +64,8 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("expected target metrics, got %s", attachEvt.GetTarget())
 	}
 
-	// 4. NewDetachEvent
-	detachEvt, err := event.NewDetachEvent("client-1", "metrics")
+	// 4. NewRawEvent for Detach
+	detachEvt, err := event.NewRawEvent(event.TypeDetach, "client-1", "metrics", "metrics")
 	if err != nil {
 		t.Fatalf("failed to create detach event: %v", err)
 	}
@@ -73,8 +73,8 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("expected type %s, got %s", event.TypeDetach, detachEvt.GetType())
 	}
 
-	// 5. NewPingEvent & NewPongEvent
-	pingEvt, err := event.NewPingEvent("client-1")
+	// 5. NewRawEvent for Ping & Pong
+	pingEvt, err := event.NewRawEvent(event.TypePing, "client-1", "", "ping")
 	if err != nil {
 		t.Fatalf("failed to create ping event: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("expected type %s, got %s", event.TypePing, pingEvt.GetType())
 	}
 
-	pongEvt, err := event.NewPongEvent("server", "client-1")
+	pongEvt, err := event.NewRawEvent(event.TypePong, "server", "client-1", "pong")
 	if err != nil {
 		t.Fatalf("failed to create pong event: %v", err)
 	}
@@ -90,8 +90,8 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("expected type %s, got %s", event.TypePong, pongEvt.GetType())
 	}
 
-	// 6. GenericStringMessage
-	gsm := event.NewGenericStringMessage(event.TypeMessage, "hello generic")
+	// 6. GenericStringMessage with NewEvent
+	gsm := &event.GenericStringMessage{Type_: event.TypeMessage, Msg: "hello generic"}
 	evtFromData, err := event.NewEvent(gsm, "alerts", "sess123")
 	if err != nil {
 		t.Fatalf("failed to create event from DataInterface: %v", err)
@@ -116,7 +116,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	// 8. NTP Query, Response & Error Events
 	rawNTP := make([]byte, 48)
 	rawNTP[0] = 0x1b // NTP request header
-	ntpQuery, err := event.NewNTPQueryEvent("client-1", rawNTP)
+	ntpQuery, err := event.NewRawEvent(event.TypeNTPQuery, "client-1", "", rawNTP)
 	if err != nil {
 		t.Fatalf("failed to create NTP query event: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("expected 48-byte NTP slice with first byte 0x1b, got %v (%T)", gotNTPData, gotNTPData)
 	}
 
-	ntpResp, err := event.NewNTPResponseEvent("wsbroker", "client-1", rawNTP)
+	ntpResp, err := event.NewRawEvent(event.TypeNTPResponse, "wsbroker", "client-1", rawNTP)
 	if err != nil {
 		t.Fatalf("failed to create NTP response event: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("expected 48 bytes NTP response, got %v", gotRespData)
 	}
 
-	ntpErr, err := event.NewNTPErrorEvent("wsbroker", "client-1", "ntp server timeout")
+	ntpErr, err := event.NewRawEvent(event.TypeNTPError, "wsbroker", "client-1", "ntp server timeout")
 	if err != nil {
 		t.Fatalf("failed to create NTP error event: %v", err)
 	}
@@ -176,10 +176,11 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("unexpected String representation: %s", fileMsg.String())
 	}
 
-	fileEvt, err := event.NewFileEvent("client-1", "channel-files", fileMsg, "auth-sess-1")
+	fileEvt, err := event.NewRawEvent(event.TypeFile, "client-1", "channel-files", fileMsg)
 	if err != nil {
 		t.Fatalf("failed to create file event: %v", err)
 	}
+	fileEvt.Session = "auth-sess-1"
 	if fileEvt.GetType() != event.TypeFile {
 		t.Errorf("expected event type %s, got %s", event.TypeFile, fileEvt.GetType())
 	}
@@ -222,7 +223,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 	}
 
 	// 10. Channel Info Query, Response & Error Events
-	ciQuery, err := event.NewChannelInfoQueryEvent("client-1", "channel-alerts")
+	ciQuery, err := event.NewRawEvent(event.TypeChannelInfoQuery, "client-1", "channel-alerts", "channel-alerts")
 	if err != nil {
 		t.Fatalf("failed to create channel info query event: %v", err)
 	}
@@ -252,7 +253,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("unexpected ChannelInfo String: %s", info.String())
 	}
 
-	ciResp, err := event.NewChannelInfoResponseEvent("client-1", info)
+	ciResp, err := event.NewRawEvent(event.TypeChannelInfoResponse, "wsbroker", "client-1", info)
 	if err != nil {
 		t.Fatalf("failed to create channel info response event: %v", err)
 	}
@@ -286,7 +287,7 @@ func TestEventCreationAndSerialization(t *testing.T) {
 		t.Errorf("unexpected direct unmarshal: %+v", directCI)
 	}
 
-	ciErr, err := event.NewChannelInfoErrorEvent("client-1", "access denied to channel")
+	ciErr, err := event.NewRawEvent(event.TypeChannelInfoError, "wsbroker", "client-1", "access denied to channel")
 	if err != nil {
 		t.Fatalf("failed to create channel info error event: %v", err)
 	}
@@ -502,43 +503,48 @@ func TestEventRefIDAndReplyHelpers(t *testing.T) {
 		t.Errorf("unexpected replyViaFunc: %+v", replyViaFunc)
 	}
 
-	// 5. Response constructors with RefID
-	pong, err := event.NewPongEvent("server", "client-1", "pong-payload", "ref-ping-99")
+	// 5. Response events with RefID
+	pong, err := event.NewRawEvent(event.TypePong, "server", "client-1", "pong-payload")
 	if err != nil {
-		t.Fatalf("NewPongEvent failed: %v", err)
+		t.Fatalf("NewRawEvent failed: %v", err)
 	}
+	pong.RefID = "ref-ping-99"
 	if pong.RefID != "ref-ping-99" {
 		t.Errorf("expected pong RefID 'ref-ping-99', got %q", pong.RefID)
 	}
 
-	ntpResp, err := event.NewNTPResponseEvent("server", "client-1", []byte{1, 2, 3}, "ref-ntp-1")
+	ntpResp, err := event.NewRawEvent(event.TypeNTPResponse, "server", "client-1", []byte{1, 2, 3})
 	if err != nil {
-		t.Fatalf("NewNTPResponseEvent failed: %v", err)
+		t.Fatalf("NewRawEvent failed: %v", err)
 	}
+	ntpResp.RefID = "ref-ntp-1"
 	if ntpResp.RefID != "ref-ntp-1" {
 		t.Errorf("expected ntpResp RefID 'ref-ntp-1', got %q", ntpResp.RefID)
 	}
 
-	ntpErr, err := event.NewNTPErrorEvent("server", "client-1", "timeout", "ref-ntp-2")
+	ntpErr, err := event.NewRawEvent(event.TypeNTPError, "server", "client-1", "timeout")
 	if err != nil {
-		t.Fatalf("NewNTPErrorEvent failed: %v", err)
+		t.Fatalf("NewRawEvent failed: %v", err)
 	}
+	ntpErr.RefID = "ref-ntp-2"
 	if ntpErr.RefID != "ref-ntp-2" {
 		t.Errorf("expected ntpErr RefID 'ref-ntp-2', got %q", ntpErr.RefID)
 	}
 
-	ciResp, err := event.NewChannelInfoResponseEvent("client-1", event.ChannelInfo{Name: "alerts"}, "broker", "ref-ci-1")
+	ciResp, err := event.NewRawEvent(event.TypeChannelInfoResponse, "broker", "client-1", event.ChannelInfo{Name: "alerts"})
 	if err != nil {
-		t.Fatalf("NewChannelInfoResponseEvent failed: %v", err)
+		t.Fatalf("NewRawEvent failed: %v", err)
 	}
+	ciResp.RefID = "ref-ci-1"
 	if ciResp.RefID != "ref-ci-1" {
 		t.Errorf("expected ciResp RefID 'ref-ci-1', got %q", ciResp.RefID)
 	}
 
-	ciErr, err := event.NewChannelInfoErrorEvent("client-1", "err", "broker", "ref-ci-2")
+	ciErr, err := event.NewRawEvent(event.TypeChannelInfoError, "broker", "client-1", "err")
 	if err != nil {
-		t.Fatalf("NewChannelInfoErrorEvent failed: %v", err)
+		t.Fatalf("NewRawEvent failed: %v", err)
 	}
+	ciErr.RefID = "ref-ci-2"
 	if ciErr.RefID != "ref-ci-2" {
 		t.Errorf("expected ciErr RefID 'ref-ci-2', got %q", ciErr.RefID)
 	}

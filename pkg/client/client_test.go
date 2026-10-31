@@ -125,7 +125,11 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				s.groups[ch] = newMembers
 			}
 		case event.TypePing:
-			pongEvt, _ := event.NewPongEvent("mockbroker", clientName, evt.Data)
+			pongData := any(evt.Data)
+			if len(evt.Data) == 0 {
+				pongData = "pong"
+			}
+			pongEvt, _ := event.NewRawEvent(event.TypePong, "mockbroker", clientName, pongData)
 			pongEvt.RefID = evt.ID
 			_ = wsjson.Write(r.Context(), conn, pongEvt)
 		case event.TypeChannelInfoQuery:
@@ -135,7 +139,8 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				targetChannel = evt.Target
 			}
 			if targetChannel == "error-channel" {
-				errEvt, _ := event.NewChannelInfoErrorEvent(clientName, "channel access forbidden", "mockbroker", evt.ID)
+				errEvt, _ := event.NewRawEvent(event.TypeChannelInfoError, "mockbroker", clientName, "channel access forbidden")
+				errEvt.RefID = evt.ID
 				_ = wsjson.Write(r.Context(), conn, errEvt)
 			} else if targetChannel == "silent-channel" {
 				// Don't respond to trigger timeout in test
@@ -149,10 +154,11 @@ func (s *mockBrokerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					Subscribers: len(members),
 					Clients:     members,
 				}
-				respEvt, _ := event.NewChannelInfoResponseEvent(clientName, info, "mockbroker", evt.ID)
+				respEvt, _ := event.NewRawEvent(event.TypeChannelInfoResponse, "mockbroker", clientName, info)
+				respEvt.RefID = evt.ID
 				_ = wsjson.Write(r.Context(), conn, respEvt)
 			}
-		case event.TypeMessage, event.TypeFile:
+		default:
 			if evt.ID == "" {
 				evt.ID = event.GenerateEventID()
 			}
@@ -811,7 +817,7 @@ func TestClient_LargePayload(t *testing.T) {
 	}
 
 	fileMsg := event.NewFileMessage("test_screenshot.jpg", "image/jpeg", largeData)
-	evt, err := event.NewFileEvent("sender", "receiver", fileMsg)
+	evt, err := event.NewRawEvent(event.TypeFile, "sender", "receiver", fileMsg)
 	if err != nil {
 		t.Fatalf("failed to create file event: %v", err)
 	}
@@ -1498,9 +1504,8 @@ func TestClient_AutomaticPongRefID(t *testing.T) {
 	}
 
 	// Send Ping from mock server to client with specific ID
-	pingEvt, _ := event.NewPingEvent("mockbroker", "ping-payload")
+	pingEvt, _ := event.NewRawEvent(event.TypePing, "mockbroker", "pong-test-client", "ping-payload")
 	pingEvt.ID = "ping-id-98765"
-	pingEvt.Target = "pong-test-client"
 	if err := wsjson.Write(ctx, conn, pingEvt); err != nil {
 		t.Fatalf("failed to write ping: %v", err)
 	}

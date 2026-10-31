@@ -75,7 +75,8 @@ func setupNTPMockServer(t *testing.T, shouldFail bool) (*httptest.Server, func()
 
 			if evt.Type == event.TypeNTPQuery {
 				if shouldFail {
-					errEvt, _ := event.NewNTPErrorEvent("mockbroker", evt.Source, "NTP upstream unreachable", evt.ID)
+					errEvt, _ := event.NewRawEvent(event.TypeNTPError, "mockbroker", evt.Source, "NTP upstream unreachable")
+					errEvt.RefID = evt.ID
 					_ = wsjson.Write(r.Context(), conn, errEvt)
 					continue
 				}
@@ -90,7 +91,8 @@ func setupNTPMockServer(t *testing.T, shouldFail bool) (*httptest.Server, func()
 				}
 
 				respPacket := createMockNTPResponse(reqBytes, time.Now())
-				respEvt, _ := event.NewNTPResponseEvent("mockbroker", evt.Source, respPacket, evt.ID)
+				respEvt, _ := event.NewRawEvent(event.TypeNTPResponse, "mockbroker", evt.Source, respPacket)
+				respEvt.RefID = evt.ID
 				_ = wsjson.Write(r.Context(), conn, respEvt)
 			}
 		}

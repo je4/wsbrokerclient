@@ -190,7 +190,8 @@ func TestTopLevelChannelInfoIntegration(t *testing.T) {
 					Subscribers: len(members),
 					Clients:     members,
 				}
-				respEvt, _ := wsbrokerclient.NewChannelInfoResponseEvent(clientName, info, "wsbroker", evt.ID)
+				respEvt, _ := wsbrokerclient.NewRawEvent(wsbrokerclient.TypeChannelInfoResponse, "wsbroker", clientName, info)
+				respEvt.RefID = evt.ID
 				_ = wsjson.Write(r.Context(), conn, respEvt)
 			default:
 				if members, ok := groups[evt.Target]; ok {
@@ -263,19 +264,19 @@ func TestTopLevelChannelInfoIntegration(t *testing.T) {
 	}
 
 	// Test top-level constructor helpers
-	queryEvt, err := wsbrokerclient.NewChannelInfoQueryEvent("clientA", "chat-room")
+	queryEvt, err := wsbrokerclient.NewRawEvent(wsbrokerclient.TypeChannelInfoQuery, "clientA", "chat-room", "chat-room")
 	if err != nil || queryEvt.Type != wsbrokerclient.TypeChannelInfoQuery {
-		t.Fatalf("NewChannelInfoQueryEvent failed: %v", err)
+		t.Fatalf("NewRawEvent for query failed: %v", err)
 	}
 
-	respEvt, err := wsbrokerclient.NewChannelInfoResponseEvent("clientA", *info)
+	respEvt, err := wsbrokerclient.NewRawEvent(wsbrokerclient.TypeChannelInfoResponse, "wsbroker", "clientA", *info)
 	if err != nil || respEvt.Type != wsbrokerclient.TypeChannelInfoResponse {
-		t.Fatalf("NewChannelInfoResponseEvent failed: %v", err)
+		t.Fatalf("NewRawEvent for response failed: %v", err)
 	}
 
-	errEvt, err := wsbrokerclient.NewChannelInfoErrorEvent("clientA", "failed")
+	errEvt, err := wsbrokerclient.NewRawEvent(wsbrokerclient.TypeChannelInfoError, "wsbroker", "clientA", "failed")
 	if err != nil || errEvt.Type != wsbrokerclient.TypeChannelInfoError {
-		t.Fatalf("NewChannelInfoErrorEvent failed: %v", err)
+		t.Fatalf("NewRawEvent for error failed: %v", err)
 	}
 }
 
@@ -330,5 +331,189 @@ func TestTopLevelGenericRPCAndConversions(t *testing.T) {
 	}
 	if backTyped.Data.Greeting != "hi" {
 		t.Errorf("expected 'hi', got %s", backTyped.Data.Greeting)
+	}
+}
+
+type DownstreamTagReadData struct {
+	EPC       string    `json:"epc"`
+	RSSI      float64   `json:"rssi"`
+	Antenna   int       `json:"antenna"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+func TestTopLevelCustomEventRegistryAndListeners(t *testing.T) {
+	const TypeTagRead wsbrokerclient.EventType = "rfid/tag_read"
+
+	// 1. Dynamic Payload Registration (like in downstream rfidclient.init())
+	wsbrokerclient.RegisterPayload[*DownstreamTagReadData](TypeTagRead)
+
+	var mu sync.Mutex
+	conns := make(map[string]*websocket.Conn)
+	groups := make(map[string][]string)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{"*"}})
+		if err != nil {
+			return
+		}
+		pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		clientName := "anon"
+		if len(pathParts) >= 2 {
+			clientName = pathParts[1]
+		}
+
+		mu.Lock()
+		conns[clientName] = conn
+		for _, ch := range r.URL.Query()["channel"] {
+			groups[ch] = append(groups[ch], clientName)
+		}
+		mu.Unlock()
+
+		defer func() {
+			mu.Lock()
+			delete(conns, clientName)
+			for ch, members := range groups {
+				var updated []string
+				for _, m := range members {
+					if m != clientName {
+						updated = append(updated, m)
+					}
+				}
+				groups[ch] = updated
+			}
+			mu.Unlock()
+			_ = conn.Close(websocket.StatusNormalClosure, "server close")
+		}()
+
+		for {
+			var evt wsbrokerclient.RawEvent
+			if err := wsjson.Read(r.Context(), conn, &evt); err != nil {
+				break
+			}
+			mu.Lock()
+			if members, ok := groups[evt.Target]; ok {
+				for _, m := range members {
+					if c, exists := conns[m]; exists {
+						_ = wsjson.Write(r.Context(), c, &evt)
+					}
+				}
+			} else if targetConn, ok := conns[evt.Target]; ok {
+				_ = wsjson.Write(r.Context(), targetConn, &evt)
+			}
+			mu.Unlock()
+		}
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	const rfidChannel = "rfid-inventory"
+
+	readerCli, err := wsbrokerclient.New(wsbrokerclient.DefaultConfig(),
+		wsbrokerclient.WithEndpoint(server.URL),
+		wsbrokerclient.WithClientName("rfid-reader-01"),
+	)
+	if err != nil {
+		t.Fatalf("failed to create reader client: %v", err)
+	}
+	defer readerCli.Close()
+
+	serviceCli, err := wsbrokerclient.New(wsbrokerclient.DefaultConfig(),
+		wsbrokerclient.WithEndpoint(server.URL),
+		wsbrokerclient.WithClientName("inventory-service"),
+		wsbrokerclient.WithInitialChannels(rfidChannel),
+	)
+	if err != nil {
+		t.Fatalf("failed to create service client: %v", err)
+	}
+	defer serviceCli.Close()
+
+	if err := readerCli.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect reader: %v", err)
+	}
+	if err := serviceCli.ConnectSync(ctx); err != nil {
+		t.Fatalf("failed to connect service: %v", err)
+	}
+
+	// 2. Test OnTyped listener
+	receivedTyped := make(chan *wsbrokerclient.Event[*DownstreamTagReadData], 1)
+	unsubTyped := wsbrokerclient.OnTyped[*DownstreamTagReadData](serviceCli, TypeTagRead, func(evt *wsbrokerclient.Event[*DownstreamTagReadData]) {
+		receivedTyped <- evt
+	})
+	defer unsubTyped()
+
+	// 3. Test SubscribeTyped stream
+	subStream, err := wsbrokerclient.SubscribeTyped[*DownstreamTagReadData](ctx, serviceCli, rfidChannel)
+	if err != nil {
+		t.Fatalf("SubscribeTyped failed: %v", err)
+	}
+	defer subStream.Unsubscribe()
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	sampleTag := &DownstreamTagReadData{
+		EPC:       "E2801160600002048E129999",
+		RSSI:      -58.3,
+		Antenna:   2,
+		Timestamp: now,
+	}
+
+	// Send direct event to serviceCli
+	directEvt, err := wsbrokerclient.NewEventTyped(TypeTagRead, "rfid-reader-01", "inventory-service", sampleTag)
+	if err != nil {
+		t.Fatalf("NewEventTyped failed: %v", err)
+	}
+	rawDirect, err := wsbrokerclient.ToRaw(directEvt)
+	if err != nil {
+		t.Fatalf("ToRaw failed: %v", err)
+	}
+
+	// Verify GetData() and UnmarshalDynamic() on rawDirect before sending
+	dataDynamic, err := wsbrokerclient.UnmarshalDynamic(rawDirect)
+	if err != nil {
+		t.Fatalf("UnmarshalDynamic failed: %v", err)
+	}
+	tagDecoded, ok := dataDynamic.(*DownstreamTagReadData)
+	if !ok {
+		t.Fatalf("expected *DownstreamTagReadData, got %T", dataDynamic)
+	}
+	if tagDecoded.EPC != sampleTag.EPC || tagDecoded.RSSI != sampleTag.RSSI || tagDecoded.Antenna != 2 {
+		t.Errorf("decoded tag mismatch: %+v", tagDecoded)
+	}
+
+	if err := readerCli.Send(ctx, rawDirect); err != nil {
+		t.Fatalf("reader send failed: %v", err)
+	}
+
+	select {
+	case evt := <-receivedTyped:
+		if evt.Data.EPC != sampleTag.EPC || evt.Data.RSSI != sampleTag.RSSI || evt.Data.Antenna != 2 {
+			t.Errorf("OnTyped received data mismatch: %+v", evt.Data)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for OnTyped event")
+	}
+
+	// Send broadcast event to channel
+	chanEvt, err := wsbrokerclient.NewEventTyped(TypeTagRead, "rfid-reader-01", rfidChannel, sampleTag)
+	if err != nil {
+		t.Fatalf("NewEventTyped failed: %v", err)
+	}
+	rawChan, err := wsbrokerclient.ToRaw(chanEvt)
+	if err != nil {
+		t.Fatalf("ToRaw failed: %v", err)
+	}
+
+	if err := readerCli.Send(ctx, rawChan); err != nil {
+		t.Fatalf("reader send to channel failed: %v", err)
+	}
+
+	select {
+	case evt := <-subStream.Events():
+		if evt.Data.EPC != sampleTag.EPC || evt.Data.RSSI != sampleTag.RSSI {
+			t.Errorf("SubscribeTyped received data mismatch: %+v", evt.Data)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for SubscribeTyped stream event")
 	}
 }
