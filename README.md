@@ -1,3 +1,5 @@
+This Repository has been moved to https://gitlab.switch.ch/ub-unibas/library-infrastructure/wsbrokerclient
+
 # WSBrokerClient
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/je4/wsbrokerclient.svg)](https://pkg.go.dev/github.com/je4/wsbrokerclient)
